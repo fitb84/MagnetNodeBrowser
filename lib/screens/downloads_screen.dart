@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
+import '../services/notification_service.dart';
 
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({Key? key}) : super(key: key);
@@ -15,6 +16,33 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   void initState() {
     super.initState();
     _downloadsFuture = ApiClient.getDownloads();
+    _checkActiveDownloads();
+  }
+
+  Future<void> _checkActiveDownloads() async {
+    // Periodically check and show notifications for active downloads
+    Future.delayed(const Duration(seconds: 2), () async {
+      try {
+        final downloads = await ApiClient.getDownloads();
+        for (var dl in downloads) {
+          final state = dl['state'] as String? ?? 'unknown';
+          if (state == 'downloading') {
+            // Show notification for active downloads
+            final speed = dl['dlspeed'] ?? '0 B/s';
+            await NotificationService.showDownloadNotification(
+              id: dl['hash'].hashCode,
+              title: 'Downloading: ${dl['name']}',
+              body: 'Speed: $speed',
+            );
+          }
+        }
+      } catch (e) {
+        // Silently fail
+      }
+      if (mounted) {
+        _checkActiveDownloads();
+      }
+    });
   }
 
   Color _getStateColor(String state) {

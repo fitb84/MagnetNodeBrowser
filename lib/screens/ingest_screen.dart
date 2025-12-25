@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
+import '../services/notification_service.dart';
 
 class IngestScreen extends StatefulWidget {
   const IngestScreen({Key? key}) : super(key: key);
@@ -76,6 +77,7 @@ class _IngestScreenState extends State<IngestScreen> {
     }
 
     setState(() => _submitting = true);
+    int successCount = 0;
     try {
       for (final item in _batch) {
         await ApiClient.addMagnet(
@@ -83,10 +85,15 @@ class _IngestScreenState extends State<IngestScreen> {
           item['category']!,
           item['tv_folder']!,
         );
+        successCount++;
       }
+      
+      // Show notification
+      await NotificationService.showBatchSubmitted(successCount);
+      
       setState(() => _batch.clear());
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Added ${_batch.length} magnets')),
+        SnackBar(content: Text('✓ Added $successCount magnet${successCount == 1 ? '' : 's'}')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
