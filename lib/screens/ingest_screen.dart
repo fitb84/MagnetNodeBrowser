@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_client.dart';
 import '../services/notification_service.dart';
 
@@ -35,6 +36,24 @@ class _IngestScreenState extends State<IngestScreen> {
       );
     } finally {
       setState(() => _loadingFolders = false);
+    }
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    try {
+      final data = await Clipboard.getData('text/plain');
+      if (data?.text != null) {
+        setState(() {
+          _magnetController.text = data!.text!;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pasted from clipboard')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error accessing clipboard: $e')),
+      );
     }
   }
 
@@ -124,14 +143,25 @@ class _IngestScreenState extends State<IngestScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
-                      TextField(
-                        controller: _magnetController,
-                        decoration: InputDecoration(
-                          hintText: 'Paste magnet link here',
-                          prefixIcon: const Icon(Icons.link),
-                          isDense: true,
-                        ),
-                        maxLines: null,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _magnetController,
+                              decoration: InputDecoration(
+                                hintText: 'Paste magnet link here',
+                                prefixIcon: const Icon(Icons.link),
+                                isDense: true,
+                              ),
+                              maxLines: null,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.paste),
+                            onPressed: _pasteFromClipboard,
+                            tooltip: 'Paste from clipboard',
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       Row(

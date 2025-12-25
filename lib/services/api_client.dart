@@ -1,9 +1,16 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
 
 class ApiClient {
-  static const String baseUrl = 'http://100.120.201.83:5050';
+  static String _baseUrl = 'http://100.120.201.83:5050';
   static const Duration timeout = Duration(seconds: 10);
+
+  static String get baseUrl => _baseUrl;
+
+  static void setBaseUrl(String url) {
+    _baseUrl = url.replaceAll(RegExp(r'/$'), ''); // Remove trailing slash
+  }
 
   // Get dashboard stats
   static Future<Map<String, dynamic>> getStats() async {

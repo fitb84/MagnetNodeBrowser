@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_client.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -9,16 +10,269 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  late TextEditingController _urlController;
+  String? _testResult;
+  bool _isTesting = false;
+  int _selectedTab = 0;
+
   late Future<Map<String, dynamic>> _librariesFuture;
 
   @override
   void initState() {
     super.initState();
+    _urlController = TextEditingController(text: ApiClient.baseUrl);
     _librariesFuture = ApiClient.getLibraries();
   }
 
   @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _testConnection() async {
+    setState(() {
+      _isTesting = true;
+      _testResult = null;
+    });
+
+    try {
+      final stats = await ApiClient.getStats();
+      setState(() {
+        _testResult = 'Connected! Stats: ${stats.keys.join(', ')}';
+        _isTesting = false;
+      });
+    } catch (e) {
+      setState(() {
+        _testResult = 'Connection Error: $e';
+        _isTesting = false;
+      });
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    final newUrl = _urlController.text.trim();
+    if (newUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('URL cannot be empty')),
+      );
+      return;
+    }
+
+    ApiClient.setBaseUrl(newUrl);
+    
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('API URL updated to: $newUrl')),
+    );
+  }
+
+  Future<void> _copyToClipboard(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied to clipboard')),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: const Color(0xFF181818),
+      ),
+      backgroundColor: const Color(0xFF111111),
+      body: _selectedTab == 0
+          ? _buildAPISettings()
+          : _buildLibrarySettings(),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedTab,
+        onTap: (index) => setState(() => _selectedTab = index),
+        backgroundColor: const Color(0xFF181818),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.api), label: 'API'),
+          BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Libraries'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAPISettings() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'API Configuration',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFffffff),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _urlController,
+            style: const TextStyle(color: Color(0xFFffffff)),
+            decoration: InputDecoration(
+              hintText: 'http://ip:port',
+              hintStyle: const TextStyle(color: Color(0xFFbbbbbb)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFF222222)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFF222222)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFff3b3b)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _saveSettings,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFff3b3b),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Save'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isTesting ? null : _testConnection,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF222222),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: _isTesting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text('Test'),
+                ),
+              ),
+            ],
+          ),
+          if (_testResult != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _testResult!.contains('Connected')
+                    ? Colors.green.withOpacity(0.2)
+                    : Colors.red.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _testResult!.contains('Connected')
+                      ? Colors.green
+                      : Colors.red,
+                ),
+              ),
+              child: Text(
+                _testResult!,
+                style: TextStyle(
+                  color: _testResult!.contains('Connected')
+                      ? Colors.green
+                      : Colors.red,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 32),
+          const Text(
+            'Current Configuration',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFffffff),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF181818),
+              border: Border.all(color: const Color(0xFF222222)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'API Base URL',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFFbbbbbb),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            ApiClient.baseUrl,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFFffffff),
+                              fontFamily: 'Courier',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, color: Color(0xFFff3b3b)),
+                      onPressed: () => _copyToClipboard(ApiClient.baseUrl),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Troubleshooting',
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFFbbbbbb),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '• Ensure the backend is running and accessible\n'
+            '• Check that Tailscale is connected\n'
+            '• Verify the IP and port are correct\n'
+            '• Use the Test button to check connectivity',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFFbbbbbb),
+              height: 1.6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLibrarySettings() {
     return RefreshIndicator(
       onRefresh: () async {
         setState(() {
