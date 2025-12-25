@@ -1,0 +1,22 @@
+{
+  "project_info": {
+    "project_number": "123456789",
+    "project_id": "magnetnode-mobile",
+    "name": "MagnetNode Mobile"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:123456789:android:abc123def456"
+      },
+      "oauth_client": [],
+      "api_key": [],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
