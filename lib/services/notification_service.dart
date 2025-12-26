@@ -11,15 +11,20 @@ class NotificationService {
   static Future<void> initialize() async {
     if (_isInitialized) return;
 
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    try {
+      const AndroidInitializationSettings androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
-    );
+      const InitializationSettings initSettings = InitializationSettings(
+        android: androidSettings,
+      );
 
-    await _notificationsPlugin.initialize(initSettings);
-    _isInitialized = true;
+      await _notificationsPlugin.initialize(initSettings);
+      _isInitialized = true;
+    } catch (e) {
+      print('Error initializing notifications: $e');
+      _isInitialized = true; // Mark as initialized to prevent retry
+    }
   }
 
   // Show notification for active download

@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.magnetnode_mobile"
+    namespace = "com.example.magnetnodebrowser"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.magnetnode_mobile"
+        applicationId = "com.example.magnetnodebrowser"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

@@ -10,7 +10,12 @@ class IngestScreen extends StatefulWidget {
   State<IngestScreen> createState() => _IngestScreenState();
 }
 
-class _IngestScreenState extends State<IngestScreen> {
+class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  static const platform = MethodChannel('com.example.magnetnodebrowser/magnet');
+
   final _magnetController = TextEditingController();
   final _tvFolderController = TextEditingController();
   String _selectedCategory = 'movie';
@@ -23,6 +28,25 @@ class _IngestScreenState extends State<IngestScreen> {
   void initState() {
     super.initState();
     _loadTvFolders();
+    _checkIncomingMagnetLink();
+  }
+
+  @override
+  void dispose() {
+    _magnetController.dispose();
+    _tvFolderController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkIncomingMagnetLink() async {
+    try {
+      final magnetLink = await platform.invokeMethod<String>('getMagnetLink');
+      if (magnetLink != null && magnetLink.isNotEmpty) {
+        _showMagnetLinkModal(magnetLink);
+      }
+    } on PlatformException {
+      // Silent fail - no incoming magnet link
+    }
   }
 
   Future<void> _loadTvFolders() async {
@@ -31,9 +55,11 @@ class _IngestScreenState extends State<IngestScreen> {
       final folders = await ApiClient.getTvFolders();
       setState(() => _tvFolders = folders);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading TV folders: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading TV folders: $e')),
+        );
+      }
     } finally {
       setState(() => _loadingFolders = false);
     }
@@ -46,14 +72,18 @@ class _IngestScreenState extends State<IngestScreen> {
         setState(() {
           _magnetController.text = data!.text!;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pasted from clipboard')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Pasted from clipboard')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error accessing clipboard: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error accessing clipboard: $e')),
+        );
+      }
     }
   }
 
@@ -87,6 +117,226 @@ class _IngestScreenState extends State<IngestScreen> {
     setState(() => _batch.removeAt(index));
   }
 
+  void _editBatchItem(int index) async {
+    final item = _batch[index];
+    String selectedCategory = item['category'] ?? 'movie';
+    String selectedFolder = item['tv_folder'] ?? '';
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Edit Download Options'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Category:',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButton<String>(
+                      value: selectedCategory,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'movie', child: Text('Movie')),
+                        DropdownMenuItem(value: 'show', child: Text('TV Show')),
+                      ],
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedCategory = value ?? 'movie';
+                          selectedFolder = '';
+                        });
+                      },
+                    ),
+                    if (selectedCategory == 'show') ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Series:',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: TextEditingController(text: selectedFolder),
+                        onChanged: (value) {
+                          setDialogState(() => selectedFolder = value);
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Type to search...',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (_tvFolders.isNotEmpty && selectedFolder.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 120,
+                          child: ListView.builder(
+                            itemCount: _tvFolders.length,
+                            itemBuilder: (context, idx) {
+                              final folder = _tvFolders[idx];
+                              if (!folder.toLowerCase().contains(selectedFolder.toLowerCase())) {
+                                return const SizedBox.shrink();
+                              }
+                              return ListTile(
+                                dense: true,
+                                title: Text(folder),
+                                onTap: () {
+                                  setDialogState(() => selectedFolder = folder);
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedCategory == 'show' && selectedFolder.isEmpty
+                      ? null
+                      : () {
+                          setState(() {
+                            _batch[index]['category'] = selectedCategory;
+                            _batch[index]['tv_folder'] = selectedFolder;
+                          });
+                          Navigator.pop(dialogContext);
+                        },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showMagnetLinkModal(String magnetLink) async {
+    if (!mounted) return;
+
+    String selectedCategory = 'movie';
+    String selectedFolder = '';
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Magnet Link'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Magnet link detected',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Category:',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButton<String>(
+                      value: selectedCategory,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'movie', child: Text('Movie')),
+                        DropdownMenuItem(value: 'show', child: Text('TV Show')),
+                      ],
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedCategory = value ?? 'movie';
+                          selectedFolder = '';
+                        });
+                      },
+                    ),
+                    if (selectedCategory == 'show') ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Series:',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        onChanged: (value) {
+                          setDialogState(() => selectedFolder = value);
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Type to search...',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (_tvFolders.isNotEmpty && selectedFolder.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 120,
+                          child: ListView.builder(
+                            itemCount: _tvFolders.length,
+                            itemBuilder: (context, idx) {
+                              final folder = _tvFolders[idx];
+                              if (!folder.toLowerCase().contains(selectedFolder.toLowerCase())) {
+                                return const SizedBox.shrink();
+                              }
+                              return ListTile(
+                                dense: true,
+                                title: Text(folder),
+                                onTap: () {
+                                  setDialogState(() => selectedFolder = folder);
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedCategory == 'show' && selectedFolder.isEmpty
+                      ? null
+                      : () {
+                          setState(() {
+                            _batch.add({
+                              'magnet': magnetLink,
+                              'category': selectedCategory,
+                              'tv_folder': selectedFolder,
+                            });
+                          });
+                          Navigator.pop(dialogContext);
+                        },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _submitBatch() async {
     if (_batch.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,18 +356,21 @@ class _IngestScreenState extends State<IngestScreen> {
         );
         successCount++;
       }
-      
-      // Show notification
+
       await NotificationService.showBatchSubmitted(successCount);
-      
+
       setState(() => _batch.clear());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✓ Added $successCount magnet${successCount == 1 ? '' : 's'}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✓ Added $successCount magnet${successCount == 1 ? '' : 's'}')),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     } finally {
       setState(() => _submitting = false);
     }
@@ -125,6 +378,7 @@ class _IngestScreenState extends State<IngestScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       body: SingleChildScrollView(
         child: Padding(
@@ -148,12 +402,12 @@ class _IngestScreenState extends State<IngestScreen> {
                           Expanded(
                             child: TextField(
                               controller: _magnetController,
-                              decoration: InputDecoration(
+                              decoration: const InputDecoration(
                                 hintText: 'Paste magnet link here',
-                                prefixIcon: const Icon(Icons.link),
+                                prefixIcon: Icon(Icons.link),
                                 isDense: true,
                               ),
-                              maxLines: null,
+                              maxLines: 1,
                             ),
                           ),
                           IconButton(
@@ -184,10 +438,13 @@ class _IngestScreenState extends State<IngestScreen> {
                             child: TextField(
                               controller: _tvFolderController,
                               decoration: InputDecoration(
-                                hintText: _selectedCategory == 'show' ? 'Series name' : 'N/A',
+                                hintText: _selectedCategory == 'show' ? 'Type to search...' : 'N/A',
                                 isDense: true,
                               ),
                               enabled: _selectedCategory == 'show',
+                              onChanged: (value) {
+                                setState(() {});
+                              },
                             ),
                           ),
                         ],
@@ -200,6 +457,10 @@ class _IngestScreenState extends State<IngestScreen> {
                             itemCount: _tvFolders.length,
                             itemBuilder: (context, index) {
                               final folder = _tvFolders[index];
+                              final query = _tvFolderController.text.toLowerCase();
+                              if (!folder.toLowerCase().contains(query)) {
+                                return const SizedBox.shrink();
+                              }
                               return ListTile(
                                 dense: true,
                                 title: Text(folder),
@@ -233,6 +494,9 @@ class _IngestScreenState extends State<IngestScreen> {
               ..._batch.asMap().entries.map((entry) {
                 final index = entry.key;
                 final item = entry.value;
+                final magnetPreview = item['magnet']!.length > 50
+                    ? '${item['magnet']!.substring(0, 50)}...'
+                    : item['magnet']!;
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: Padding(
@@ -252,7 +516,7 @@ class _IngestScreenState extends State<IngestScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                item['magnet']!.substring(0, 50) + '...',
+                                magnetPreview,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall,
@@ -270,6 +534,12 @@ class _IngestScreenState extends State<IngestScreen> {
                           ),
                         ),
                         IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
+                          onPressed: () => _editBatchItem(index),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
                           onPressed: () => _removeBatchItem(index),
                           padding: EdgeInsets.zero,
@@ -279,7 +549,7 @@ class _IngestScreenState extends State<IngestScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -299,12 +569,5 @@ class _IngestScreenState extends State<IngestScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _magnetController.dispose();
-    _tvFolderController.dispose();
-    super.dispose();
   }
 }

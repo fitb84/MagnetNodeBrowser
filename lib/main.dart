@@ -5,6 +5,7 @@ import 'screens/dashboard_screen.dart';
 import 'screens/downloads_screen.dart';
 import 'screens/ingest_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/browser_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,11 +36,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
+
   final List<Widget> _screens = [
     const DashboardScreen(),
     const DownloadsScreen(),
     const IngestScreen(),
     const SettingsScreen(),
+    const BrowserScreen(),
   ];
 
   final List<String> _titles = [
@@ -47,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'Downloads',
     'Ingest',
     'Settings',
+    'Browser',
   ];
 
   @override
@@ -69,7 +73,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      body: _screens[_selectedIndex],
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         type: BottomNavigationBarType.fixed,
@@ -89,6 +96,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),
             label: 'Settings',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.web),
+            label: 'Browser',
           ),
         ],
         onTap: (index) {
