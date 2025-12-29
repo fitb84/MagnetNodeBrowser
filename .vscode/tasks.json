@@ -11,6 +11,17 @@
 				"--release"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Build APK",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"build",
+				"apk",
+				"--release"
+			],
+			"group": "build"
 		}
 	]
 }

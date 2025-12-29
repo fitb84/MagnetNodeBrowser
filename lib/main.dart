@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'services/notification_service.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/bandwidth_screen.dart';
 import 'screens/downloads_screen.dart';
 import 'screens/ingest_screen.dart';
 import 'screens/settings_screen.dart';
@@ -39,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<Widget> _screens = [
     const DashboardScreen(),
+    const BandwidthScreen(),
     const DownloadsScreen(),
     const IngestScreen(),
     const SettingsScreen(),
@@ -47,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<String> _titles = [
     'Dashboard',
+    'Bandwidth',
     'Downloads',
     'Ingest',
     'Settings',
@@ -84,6 +87,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),
             label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.speed),
+            label: 'Bandwidth',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.cloud_download),

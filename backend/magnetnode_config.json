@@ -1,0 +1,81 @@
+{
+  "libraries": {
+    "movie": [
+      {
+        "id": "1766564985767",
+        "path": "D:\\Movies",
+        "label": "Movies"
+      },
+      {
+        "id": "1766564985768",
+        "path": "E:\\Movies 5",
+        "label": "Movies 5"
+      },
+      {
+        "id": "1766564985769",
+        "path": "F:\\Movies 3",
+        "label": "Movies 3"
+      },
+      {
+        "id": "1766564985770",
+        "path": "G:\\Movies 2",
+        "label": "Movies 2"
+      },
+      {
+        "id": "1766564985771",
+        "path": "H:\\Movies 4",
+        "label": "Movies 4"
+      },
+      {
+        "id": "1766564985772",
+        "path": "I:\\Movies 6",
+        "label": "Movies 6"
+      },
+      {
+        "id": "1766564985773",
+        "path": "K:\\Movies 7",
+        "label": "Movies 7"
+      }
+    ],
+    "show": [
+      {
+        "id": "1766564985774",
+        "path": "D:\\TV Shows",
+        "label": "TV Shows"
+      },
+      {
+        "id": "1766564985775",
+        "path": "E:\\TV Shows 5",
+        "label": "TV Shows 5"
+      },
+      {
+        "id": "1766564985776",
+        "path": "F:\\TV Shows 3",
+        "label": "TV Shows 3"
+      },
+      {
+        "id": "1766564985777",
+        "path": "G:\\TV Shows 2",
+        "label": "TV Shows 2"
+      },
+      {
+        "id": "1766564985777",
+        "path": "H:\\TV Shows 4",
+        "label": "TV Shows 4"
+      },
+      {
+        "id": "1766564985778",
+        "path": "I:\\TV Shows 6",
+        "label": "TV Shows 6"
+      },
+      {
+        "id": "1766564985779",
+        "path": "K:\\TV Shows 7",
+        "label": "TV Shows 7"
+      }
+    ]
+  },
+  "recent_tv_folders": [
+    "Pluribus S01"
+  ]
+}

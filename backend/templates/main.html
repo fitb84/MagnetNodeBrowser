@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- Responsive, unified dashboard: no mobile redirect -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MagnetNode</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Space Mono', monospace;
+      background: #111;
+      color: #f3f3f3;
+      font-size: 18px;
+    }
+    .admin-card, .thin-border, .bg-slate-900, .bg-black {
+      background: #181818 !important;
+      border: 2px solid #222 !important;
+      border-radius: 18px !important;
+      box-shadow: 0 2px 16px 0 #000a;
+    }
+    .admin-card h2, .admin-card h3, .admin-card h4, .admin-card h1 {
+      color: #fff !important;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .admin-label, .font-bold, .uppercase {
+      font-weight: 700 !important;
+      letter-spacing: 0.08em !important;
+      color: #fff !important;
+    }
+    .admin-btn, .bg-red-600, .bg-blue-600 {
+      font-weight: 700 !important;
+      font-size: 1.1em !important;
+      border-radius: 10px !important;
+      box-shadow: 0 2px 8px 0 #66000033;
+    }
+    .admin-btn-red, .text-red-900, .text-red-500, .bg-red-600 {
+      color: #ff3b3b !important;
+      background: #2d0000 !important;
+      font-weight: 700 !important;
+    }
+    .admin-btn-red:hover {
+      color: #fff !important;
+      background: #ff3b3b !important;
+    }
+    .admin-btn-blue, .bg-blue-600, .text-blue-400 {
+      color: #4eaaff !important;
+      background: #003366 !important;
+      font-weight: 700 !important;
+    }
+    .admin-section {
+      margin-bottom: 2.5rem;
+      padding: 2rem 2.5rem;
+      background: #181818;
+      border-radius: 18px;
+      border: 2px solid #222;
+      box-shadow: 0 2px 16px 0 #000c;
+    }
+    .text-xs, .text-10px {
+      font-size: 1em !important;
+      color: #bbb !important;
+      font-weight: 500 !important;
+    }
+    .mono, .font-mono {
+      font-family: 'Space Mono', monospace !important;
+    }
+    .bg-slate-900, .bg-slate-950 {
+      background: #111 !important;
+    }
+    .border-slate-800, .border-slate-700 {
+      border-color: #222 !important;
+    }
+    .text-slate-400, .text-slate-500, .text-gray-500, .text-gray-600 {
+      color: #bbb !important;
+    }
+    .text-white {
+      color: #fff !important;
+    }
+    .text-blue-400, .bg-blue-600 {
+      color: #4eaaff !important;
+      background: #003366 !important;
+    }
+    .bg-green-600, .text-green-400 {
+      background: #003366 !important;
+      color: #4eaaff !important;
+    }
+    .hover\:bg-blue-600:hover, .hover\:bg-green-500:hover {
+      background: #660000 !important;
+    }
+    .hover\:bg-slate-800:hover {
+      background: #222 !important;
+    }
+    .rounded-xl, .rounded-2xl, .rounded-lg, .rounded {
+      border-radius: 18px !important;
+    }
+    input, select, button {
+      font-size: 1em !important;
+      font-family: 'Space Mono', monospace !important;
+    }
+    .shadow-lg, .shadow-2xl {
+      box-shadow: 0 2px 16px 0 #000c !important;
+    }
+    .admin-danger {
+      background: #2d0000 !important;
+      color: #ff3b3b !important;
+      border: 2px solid #ff3b3b !important;
+      font-weight: 700 !important;
+    }
+    .admin-danger:hover {
+      background: #ff3b3b !important;
+      color: #fff !important;
+    }
+    /* Make all text more readable */
+    * { text-shadow: 0 1px 2px #000a; }
+    /* Lightbulb SVG animation */
+    .lightbulb-anim {
+      animation: bulbFade 2.5s infinite alternate, bulbPulse 1.5s infinite alternate;
+      filter: drop-shadow(0 0 8px #ff3b3b88);
+      transition: transform 0.3s;
+    }
+    @keyframes bulbFade {
+      0% { opacity: 0.7; }
+      100% { opacity: 1; }
+    }
+    @keyframes bulbPulse {
+      0% { transform: scale(1); }
+      100% { transform: scale(1.08); }
+    }
+    /* Card style for pools */
+    .pool-card {
+      background: #181818;
+      border: 2px solid #ff3b3b;
+      border-radius: 24px;
+      box-shadow: 0 4px 32px 0 #ff3b3b22;
+      padding: 2.5rem 2rem;
+      margin-bottom: 2rem;
+      font-size: 1.25em;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      min-height: 120px;
+    }
+    .pool-card .disconnect-btn {
+      color: #ff3b3b;
+      font-weight: 700;
+      font-size: 1.1em;
+      background: none;
+      border: none;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .pool-card .disconnect-btn:hover {
+      color: #fff;
+      background: #ff3b3b;
+      border-radius: 8px;
+      padding: 0.2em 0.6em;
+    }
+    .heartbeat-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #ff3b3b;
+      box-shadow: 0 0 12px 2px #ff3b3b88;
+      animation: heartbeat 1.2s infinite alternate;
+      display: inline-block;
+      margin-right: 0.5em;
+    }
+    @keyframes heartbeat {
+      0% { transform: scale(1); opacity: 0.7; }
+      100% { transform: scale(1.2); opacity: 1; }
+    }
+    /* Admin aesthetic additions */
+    :root{ --accent:#ff3b3b; --panel:#0f0f10; --muted:#222; }
+    body::before{
+      content:'';
+      position:fixed;inset:0;z-index:0;
+      background-image:
+        linear-gradient(0deg, rgba(255,59,59,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,59,59,0.01) 1px, transparent 1px);
+      background-size: 60px 60px, 60px 60px;
+      opacity:0.6;pointer-events:none;mix-blend-mode:overlay;
+    }
+    .card{ background:var(--panel); border:1px solid rgba(255,59,59,0.08); border-radius:14px; padding:1rem; box-shadow:0 6px 30px rgba(0,0,0,0.6);}
+    .sidebar { background:linear-gradient(180deg,#0b0b0c,#141414); }
+    nav button.tab-active{ background: rgba(255,59,59,0.08) !important; color: var(--accent) !important; box-shadow:0 8px 30px rgba(255,59,59,0.06) !important; border-left:4px solid var(--accent) !important; }
+    .pool-card{ border-color: rgba(255,59,59,0.14); box-shadow:0 10px 50px rgba(255,59,59,0.04); }
+    #memory-corner{ border-radius:12px; border:1px solid rgba(255,255,255,0.06); background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent); }
+    /* Download & Library Card Styling */
+    .download-item, .pool-card { position:relative; background:linear-gradient(135deg,#0f0f10,#1a1a1c); border:1.5px solid rgba(255,59,59,0.12); border-radius:16px; padding:1.5rem; transition:all 0.2s ease; }
+    .download-item:hover, .pool-card:hover { border-color:rgba(255,59,59,0.25); box-shadow:0 10px 40px rgba(255,59,59,0.08); transform:translateY(-2px); }
+    .pool-card { border-color:rgba(255,59,59,0.16); display:flex; flex-direction:column; gap:0.8rem; min-height:auto; }
+    /* Badge styling for status/info */
+    .badge { display:inline-flex; align-items:center; gap:0.4em; padding:0.35em 0.8em; border-radius:8px; background:rgba(255,59,59,0.12); color:#ff3b3b; font-size:0.85em; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; border:1px solid rgba(255,59,59,0.25); }
+    .badge-blue { background:rgba(78,170,255,0.12); color:#4eaaff; border-color:rgba(78,170,255,0.25); }
+    .badge-green { background:rgba(0,230,118,0.12); color:#00e676; border-color:rgba(0,230,118,0.25); }
+    /* Beveled button styling */
+    .btn-bevel { padding:0.6rem 1.2rem; border-radius:10px; font-weight:700; font-size:0.95em; border:none; cursor:pointer; transition:all 0.15s ease; box-shadow:inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 12px rgba(0,0,0,0.4); text-transform:uppercase; letter-spacing:0.05em; }
+    .btn-bevel:hover { transform:translateY(-1px); box-shadow:inset 0 1px 0 rgba(255,255,255,0.15), 0 6px 16px rgba(0,0,0,0.5); }
+    .btn-bevel:active { transform:translateY(0); box-shadow:inset 0 2px 4px rgba(0,0,0,0.3); }
+    .btn-bevel-red { background:#ff3b3b; color:#fff; }
+    .btn-bevel-dark { background:#2a2a2c; color:#bbb; }
+    .btn-bevel-blue { background:#1e5fa8; color:#fff; }
+    /* Icon badge for pool cards */
+    .pool-icon { display:inline-flex; align-items:center; justify-content:center; width:2.2em; height:2.2em; border-radius:10px; background:rgba(255,59,59,0.08); color:#ff3b3b; font-size:1.2em; flex-shrink:0; }
+    /* Widget outline class */
+    .widget-outline { border:1.5px solid rgba(255,59,59,0.15); border-radius:12px; background:rgba(255,59,59,0.01); }
+    /* Magnet input no-wrap styling */
+    .magnet-input { white-space: nowrap; overflow-x: auto; overflow-y: auto; }
+    /* Download item styling */
+    .download-item { position:relative; background:linear-gradient(135deg,#0f0f10,#1a1a1c); border:1.5px solid rgba(255,59,59,0.12); border-radius:16px; padding:1.5rem; transition:all 0.2s ease; }
+    .download-item:hover { border-color:rgba(255,59,59,0.25); box-shadow:0 10px 40px rgba(255,59,59,0.08); }
+    .download-item.completed { border-color:rgba(0,230,118,0.16); }
+    .download-item.stalled { border-color:rgba(255,165,0,0.16); }
+    .btn-remove-download { padding:0.4rem 0.8rem; font-size:0.85em; background:#ff3b3b; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:700; transition:all 0.2s; }
+    .btn-remove-download:hover { background:#fff; color:#ff3b3b; transform:scale(1.05); }
+    
+    /* ========== MOBILE OPTIMIZATION (screens < 768px) ========== */
+    @media (max-width: 767px) {
+      body {
+        font-size: 16px;
+        flex-direction: column;
+      }
+      
+      /* Sidebar becomes sticky top navigation */
+      .sidebar {
+        position: sticky;
+        top: 0;
+        width: 100%;
+        height: auto;
+        z-index: 50;
+        border-bottom: 2px solid #222;
+        border-right: none;
+        flex-direction: row;
+        padding: 0;
+        background: linear-gradient(90deg, #0b0b0c, #141414);
+      }
+      
+      /* Logo section */
+      .sidebar > .p-4 {
+        padding: 0.75rem 0.5rem !important;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      
+      .sidebar > .p-4 h1 {
+        font-size: 1rem !important;
+        display: none;
+      }
+      
+      .sidebar > .p-4 svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+      }
+      
+      /* Navigation tabs */
+      nav {
+        flex: 1;
+        flex-direction: row !important;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 0.5rem 0.5rem !important;
+        gap: 0.5rem !important;
+        min-width: 0;
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;
+      }
+      
+      /* Tab buttons - optimized for touch */
+      nav button {
+        flex: 1;
+        min-width: 90px !important;
+        padding: 0.75rem 0.5rem !important;
+        font-size: 0.9em !important;
+        height: 48px;
+        white-space: nowrap;
+        border: 1px solid #444 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      nav button.tab-active {
+        background: rgba(255, 59, 59, 0.15) !important;
+        border-left: none !important;
+        border-bottom: 3px solid #ff3b3b !important;
+      }
+      
+      /* Main content area */
+      main {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 0.75rem !important;
+      }
+      
+      /* Headings */
+      h2 {
+        font-size: 1.2rem !important;
+        margin-bottom: 1rem !important;
+      }
+      
+      h3 {
+        font-size: 1rem !important;
+      }
+      
+      /* Admin sections */
+      .admin-section {
+        padding: 1.25rem !important;
+        margin-bottom: 1.5rem !important;
+        border-radius: 12px !important;
+      }
+      
+      /* Forms and inputs */
+      input, select, textarea {
+        padding: 0.75rem !important;
+        font-size: 1em !important;
+        height: 44px;
+        border-radius: 8px !important;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+      
+      /* Buttons */
+      button {
+        padding: 0.75rem 1rem !important;
+        min-height: 44px;
+        font-size: 0.95em !important;
+        border-radius: 8px !important;
+      }
+      
+      .btn-bevel {
+        min-height: 48px;
+        font-size: 1em !important;
+        padding: 0.75rem 1.5rem !important;
+      }
+      
+      /* Grid adjustments */
+      .grid-cols-1 {
+        grid-template-columns: 1fr !important;
+      }
+      
+      .grid {
+        gap: 1rem !important;
+      }
+      
+      /* Download cards */
+      .download-item {
+        padding: 1rem !important;
+      }
+      
+      /* Library card styling */
+      .library-card {
+        padding: 1rem !important;
+        margin-bottom: 1rem !important;
+      }
+      
+      /* Pool cards */
+      .pool-card {
+        padding: 1.5rem 1rem !important;
+        margin-bottom: 1rem !important;
+        font-size: 1rem !important;
+      }
+      
+      /* Spacing overrides */
+      .gap-3 {
+        gap: 0.75rem !important;
+      }
+      
+      .gap-4 {
+        gap: 1rem !important;
+      }
+      
+      .space-y-2 > * + * {
+        margin-top: 0.5rem !important;
+      }
+      
+      .space-y-4 > * + * {
+        margin-top: 1rem !important;
+      }
+      
+      /* Labels */
+      label {
+        font-size: 0.9em !important;
+        display: block;
+        margin-bottom: 0.5rem !important;
+      }
+      
+      /* Dropdown styling */
+      #ingest-tv-folder-dropdown {
+        max-height: 200px !important;
+        width: 100% !important;
+        left: 0 !important;
+        right: 0 !important;
+      }
+      
+      /* Text sizing */
+      .text-xs {
+        font-size: 0.85em !important;
+      }
+      
+      .text-sm {
+        font-size: 0.9em !important;
+      }
+      
+      .text-lg {
+        font-size: 1.1em !important;
+      }
+      
+      .text-xl {
+        font-size: 1.2em !important;
+      }
+      
+      .text-2xl {
+        font-size: 1.4em !important;
+      }
+      
+      /* Flex column for stacked layouts */
+      .flex-col {
+        flex-direction: column !important;
+      }
+      
+      /* Hide overflow on body to prevent horizontal scroll */
+      body {
+        overflow-x: hidden !important;
+      }
+      
+      /* Memory corner repositioning */
+      #memory-corner {
+        bottom: 0.75rem !important;
+        right: 0.75rem !important;
+        font-size: 0.9em !important;
+        padding: 0.5rem 0.75rem !important;
+      }
+      
+      /* Horizontal rule adjustments */
+      hr {
+        margin: 1rem 0 !important;
+      }
+    }
+  </style>
+</head>
+  <body class="flex flex-col md:flex-row min-h-screen bg-slate-950 text-slate-200">
+  <!-- Sidebar -->
+  <div class="w-full md:w-64 bg-slate-900 sidebar md:h-screen flex md:flex-col flex-row border-b md:border-b-0 md:border-r border-slate-800 z-10 overflow-x-auto">
+    <div class="p-4 md:p-6 flex items-center gap-3">
+      <div class="bg-red-600 p-2 rounded-lg">
+        <!-- Gemini-generated lightbulb SVG icon -->
+        <svg class="w-8 h-8 lightbulb-anim" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="24" cy="20" rx="12" ry="16" fill="#fff3" stroke="#ff3b3b" stroke-width="3"/>
+          <rect x="20" y="34" width="8" height="8" rx="2" fill="#ff3b3b"/>
+          <circle cx="24" cy="20" r="8" fill="#ff3b3b"/>
+          <rect x="22" y="42" width="4" height="4" rx="1" fill="#fff"/>
+        </svg>
+      </div>
+      <h1 class="text-xl font-bold tracking-tight text-white">MagnetNode</h1>
+    </div>
+    <nav class="flex-1 flex md:flex-col flex-row md:px-4 md:py-4 px-2 py-2 md:space-y-2 space-x-2 md:space-x-0 flex-wrap min-w-0">
+      <button onclick="switchTab('dashboard')" id="tab-dashboard" class="flex-1 md:w-full flex items-center gap-3 px-2 md:px-4 py-2 md:py-3 rounded-xl transition-all text-red-500 bg-red-600/10 border border-red-500/20 shadow-lg shadow-red-500/5 font-medium min-w-[120px]">Dashboard</button>
+      <button onclick="switchTab('downloads')" id="tab-downloads" class="flex-1 md:w-full flex items-center gap-3 px-2 md:px-4 py-2 md:py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 hover:text-slate-200 font-medium min-w-[120px]">Downloads</button>
+      <button onclick="switchTab('ingest')" id="tab-ingest" class="flex-1 md:w-full flex items-center gap-3 px-2 md:px-4 py-2 md:py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 hover:text-slate-200 font-medium min-w-[120px]">Ingest</button>
+      <button onclick="switchTab('settings')" id="tab-settings" class="flex-1 md:w-full flex items-center gap-3 px-2 md:px-4 py-2 md:py-3 rounded-xl transition-all text-slate-400 hover:bg-slate-800 hover:text-slate-200 font-medium min-w-[120px]">Settings</button>
+    </nav>
+  </div>
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto p-2 md:p-8">
+    <div id="view-dashboard">
+      <h2 class="text-xl md:text-2xl font-bold text-white mb-4 md:mb-8">Dashboard</h2>
+      <div id="drives-list"></div>
+      <div id="memory-corner" style="position:fixed;bottom:1.2rem;right:1.2rem;z-index:20;"></div>
+    </div>
+    <div id="view-downloads" class="hidden">
+      <h2 class="text-xl md:text-2xl font-bold text-white mb-4 md:mb-8">Downloads</h2>
+      <!-- Tab Navigation -->
+      <div style="display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap; border-bottom:2px solid rgba(255,59,59,0.15); padding-bottom:0;">
+        <button id="tab-active-downloads" onclick="switchDownloadsTab('active')" class="download-tab-btn active" style="padding:0.75rem 1.5rem; border:none; background:none; color:#4eaaff; font-weight:700; cursor:pointer; border-bottom:3px solid #4eaaff; transition:all 0.2s;">
+          ↓ Active Downloads
+        </button>
+        <button id="tab-completed-downloads" onclick="switchDownloadsTab('completed')" class="download-tab-btn" style="padding:0.75rem 1.5rem; border:none; background:none; color:#bbb; font-weight:700; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s;">
+          ✓ Completed
+        </button>
+      </div>
+      
+      <!-- Active Downloads Tab -->
+      <div id="downloads-active-content">
+        <div id="downloads-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+      </div>
+      
+      <!-- Completed Downloads Tab -->
+      <div id="downloads-completed-content" class="hidden">
+        <!-- Sorting buttons -->
+        <div style="display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+          <button onclick="sortCompletedDownloads('status')" class="completed-sort-btn" id="sort-status" style="padding:0.5rem 1rem; border-radius:8px; background:rgba(78,170,255,0.15); color:#4eaaff; border:1px solid rgba(78,170,255,0.3); font-weight:700; cursor:pointer; transition:all 0.2s; font-size:0.9em;">
+            Sort: Status
+          </button>
+          <button onclick="sortCompletedDownloads('name')" class="completed-sort-btn" id="sort-name" style="padding:0.5rem 1rem; border-radius:8px; background:transparent; color:#bbb; border:1px solid rgba(255,255,255,0.1); font-weight:700; cursor:pointer; transition:all 0.2s; font-size:0.9em;">
+            Sort: Name
+          </button>
+          <button onclick="sortCompletedDownloads('size')" class="completed-sort-btn" id="sort-size" style="padding:0.5rem 1rem; border-radius:8px; background:transparent; color:#bbb; border:1px solid rgba(255,255,255,0.1); font-weight:700; cursor:pointer; transition:all 0.2s; font-size:0.9em;">
+            Sort: Size
+          </button>
+        </div>
+        <div id="completed-downloads-list" class="space-y-4"></div>
+      </div>
+    </div>
+    <div id="view-ingest" class="hidden">
+      <h2 class="text-xl md:text-2xl font-bold text-white mb-4 md:mb-8">Ingest Magnets</h2>
+      <div class="admin-section" style="max-width:900px;">
+        <form id="batch-ingest-form" onsubmit="submitBatchMagnets(event)">
+          <div class="space-y-4">
+            <!-- Input section -->
+            <div class="space-y-2">
+              <label class="block text-sm font-bold text-white">Magnet Link</label>
+              <input id="ingest-magnet-input" type="text" class="w-full p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500 text-sm" placeholder="Paste a magnet link here" />
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="space-y-2">
+                <label class="block text-sm font-bold text-white">Category</label>
+                <select id="ingest-category-select" class="w-full p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500">
+                  <option value="movie">Movie</option>
+                  <option value="show">TV Show</option>
+                </select>
+              </div>
+              <div class="space-y-2">
+                <label class="block text-sm font-bold text-white">TV Folder (for shows)</label>
+                <div class="flex gap-2">
+                  <input id="ingest-tv-folder-input" type="text" class="flex-1 p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500 text-sm" placeholder="Series name" oninput="filterIngestTvFolders()" />
+                  <button type="button" onclick="toggleIngestTvDropdown()" class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white hover:bg-slate-700 transition-all">▼</button>
+                </div>
+                <div id="ingest-tv-folder-dropdown" class="hidden absolute z-50 mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-48 overflow-y-auto shadow-lg" style="width:calc(100% - 2rem);"></div>
+              </div>
+            </div>
+            
+            <button type="button" onclick="addToIngestBatch()" class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold transition-all">Add to Batch</button>
+          </div>
+        </form>
+        
+        <!-- Batch list -->
+        <div style="margin-top:2rem;border-top:1px solid rgba(255,59,59,0.15);padding-top:2rem;">
+          <h3 class="text-lg font-bold text-white mb-4">Batch Queue (<span id="batch-count">0</span>)</h3>
+          <div id="ingest-batch-list" class="space-y-2"></div>
+          <div id="ingest-error" class="text-red-500 text-sm mt-4 hidden"></div>
+          <button type="button" onclick="submitBatchMagnets()" class="w-full mt-6 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold transition-all" id="submit-batch-btn" disabled>Submit Batch</button>
+        </div>
+      </div>
+    </div>
+    <div id="view-settings" class="hidden">
+      <h2 class="text-2xl font-bold text-white mb-8">Configuration</h2>
+      <form id="library-form" class="flex flex-col md:flex-row gap-3 mb-8 widget-outline" onsubmit="addLibrary(event)" style="padding:1.5rem;">
+        <div class="flex flex-col gap-2 flex-1">
+          <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Library Path</label>
+          <div class="flex gap-2">
+            <input id="lib-path" type="text" class="flex-1 p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500" placeholder="Path (e.g. D:\\Media\\Movies)" required />
+            <button type="button" onclick="browseForFolder()" class="btn-bevel btn-bevel-dark">Browse</button>
+          </div>
+          <div id="multi-paths" class="flex flex-col gap-1 mt-2"></div>
+        </div>
+        <div class="flex flex-col gap-2 flex-1">
+          <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Label</label>
+          <input id="lib-label" type="text" class="p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500" placeholder="Label (optional)" />
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Category</label>
+          <select id="lib-cat" class="p-3 rounded-lg bg-slate-800 text-white border border-slate-700 focus:outline-none focus:border-red-500">
+            <option value="movie">Movie</option>
+            <option value="show">Show</option>
+          </select>
+        </div>
+        <div class="flex gap-2 self-end">
+          <button type="button" onclick="addPathToList()" class="btn-bevel btn-bevel-dark">Add</button>
+          <button type="submit" class="btn-bevel btn-bevel-red">Save All</button>
+        </div>
+      </form>
+      <div id="library-error" class="text-red-500 text-sm mb-4 hidden"></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <div class="flex items-center gap-2 mb-6">
+            <span class="text-2xl">🎬</span>
+            <h4 class="font-bold text-white text-sm tracking-widest uppercase">Cinema Pools</h4>
+          </div>
+          <div id="pool-movie" class="space-y-4"></div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 mb-6">
+            <span class="text-2xl">📺</span>
+            <h4 class="font-bold text-white text-sm tracking-widest uppercase">Series Pools</h4>
+          </div>
+          <div id="pool-show" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <!-- Folder Selection Modal -->
+  <div id="folder-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-black/90 backdrop-blur-xl">
+    <div class="bg-black border border-red-600 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
+      <div class="p-6 border-b border-red-600 flex items-center justify-between bg-black/70">
+        <h3 class="text-xl font-bold text-white">Select Folder</h3>
+        <button onclick="closeFolderModal()" class="p-2 hover:bg-red-600 rounded-full text-red-500 hover:text-white transition-all">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="p-6 space-y-4">
+        <div id="folder-display" class="p-3 rounded-lg bg-slate-800 text-white border border-slate-700 min-h-12 flex items-center">
+          <span class="text-slate-400">No folder selected</span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="selectFolder()" class="btn-bevel btn-bevel-red flex-1">Browse</button>
+          <button onclick="closeFolderModal()" class="btn-bevel btn-bevel-dark flex-1">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // --- Dashboard: Per-drive line graphs using real data from /api/stats ---
+    let driveCharts = [];
+    let driveHistories = [];
+    function renderDrivesReal() {
+      fetch('/api/stats').then(r=>r.json()).then(data => {
+        const drives = data.drives || [];
+        const container = document.getElementById('drives-list');
+        container.innerHTML = '';
+        driveCharts = [];
+        driveHistories = drives.map(d => Array(60).fill(d.used || 0));
+        drives.forEach((d, i) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.style.marginBottom = '1.2rem';
+          card.innerHTML = `
+            <div style="display:flex;align-items:center;gap:0.7em;margin-bottom:0.5em;">
+              <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ff3b3b;margin-right:0.5em;"></span>
+              <span style="font-weight:700;color:#fff;font-size:1.1em;">${d.drive}</span>
+            </div>
+            <div style="font-size:0.98em;color:#bbb;margin-bottom:0.5em;">
+              Total: <b style='color:#fff;'>${d.total} GB</b> &nbsp; Free: <b style='color:#4eaaff;'>${d.free} GB</b> &nbsp; Used: <b style='color:#ffb347;'>${d.used} GB</b>
+            </div>
+            <div style="font-size:0.98em;color:#bbb;margin-bottom:0.5em;">
+              Usage: <b style='color:#ff3b3b;'>${d.percent}%</b>
+            </div>
+            <div class='chart-container' style='min-height:100px;'><canvas id='driveChart${i}'></canvas></div>
+          `;
+          container.appendChild(card);
+        });
+        // Render charts
+        drives.forEach((d, i) => {
+          const ctx = document.getElementById('driveChart'+i).getContext('2d');
+          driveCharts[i] = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: Array(60).fill(''),
+              datasets: [{
+                label: 'Used (GB)',
+                data: driveHistories[i],
+                borderColor: '#4eaaff',
+                backgroundColor: '#4eaaff33',
+                tension: 0.2,
+                pointRadius: 0,
+                borderWidth: 2,
+                fill: true,
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: false,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: '#fff', font: { size: 12 } },
+                  grid: { color: '#333' },
+                  suggestedMax: Math.max(100, Math.ceil((d.used||1)/10)*10)
+                },
+                x: { display: false }
+              }
+            }
+          });
+        });
+      });
+    }
+    function updateDriveChartsReal() {
+      fetch('/api/stats').then(r=>r.json()).then(data => {
+        const drives = data.drives || [];
+        drives.forEach((d, i) => {
+          if (!driveHistories[i]) driveHistories[i] = Array(60).fill(d.used || 0);
+          driveHistories[i].push(d.used || 0);
+          if (driveHistories[i].length > 60) driveHistories[i].shift();
+          if (driveCharts[i]) {
+            driveCharts[i].data.datasets[0].data = driveHistories[i];
+            driveCharts[i].options.scales.y.suggestedMax = Math.max(100, Math.ceil(Math.max(...driveHistories[i])/10)*10);
+            driveCharts[i].update('none');
+          }
+        });
+      });
+    }
+    // Memory usage in corner
+    function renderMemoryCorner() {
+      fetch('/api/stats').then(r=>r.json()).then(data => {
+        // Use psutil.virtual_memory if available in API, else mock
+        const mem = 50 + Math.random()*40;
+        document.getElementById('memory-corner').innerHTML = `<div style='background:#222;padding:0.7em 1em;border-radius:12px;box-shadow:0 2px 8px #000a;color:#4eaaff;font-weight:700;font-size:1.1em;text-align:center;'>RAM<br>${mem.toFixed(1)}%</div>`;
+      });
+    }
+    // Initial render
+    renderDrivesReal();
+    renderMemoryCorner();
+    setInterval(() => {
+      updateDriveChartsReal();
+      renderMemoryCorner();
+    }, 2000);
+
+    // --- Tab switching logic ---
+    function switchTab(tab) {
+      ['dashboard', 'downloads', 'ingest', 'settings'].forEach(t => {
+        document.getElementById('view-' + t).classList.add('hidden');
+        const btn = document.getElementById('tab-' + t);
+        btn.classList.remove('text-blue-400', 'bg-blue-600/10', 'border', 'border-blue-500/20', 'shadow-lg', 'shadow-blue-500/5', 'tab-active');
+        btn.classList.add('text-slate-400', 'hover:bg-slate-800', 'hover:text-slate-200');
+      });
+      document.getElementById('view-' + tab).classList.remove('hidden');
+      const activeBtn = document.getElementById('tab-' + tab);
+      activeBtn.classList.add('text-blue-400', 'bg-blue-600/10', 'border', 'border-blue-500/20', 'shadow-lg', 'shadow-blue-500/5', 'tab-active');
+      activeBtn.classList.remove('text-slate-400', 'hover:bg-slate-800', 'hover:text-slate-200');
+      if (tab === 'dashboard') { renderDrivesReal(); }
+      if (tab === 'downloads' && typeof loadDownloads === 'function') { loadDownloads(); }
+      if (tab === 'ingest' && typeof loadIngestTvFolders === 'function') {
+        loadIngestTvFolders();
+        loadIngestBatch();
+      }
+      if (tab === 'settings' && typeof loadLibraries === 'function') { loadLibraries(); }
+    }
+
+    // --- Batch Ingest Logic ---
+    let ingestBatch = [];
+    let ingestTvSuggestions = [];
+
+    async function loadIngestBatch() {
+      try {
+        const res = await fetch('/api/batch');
+        const data = await res.json();
+        ingestBatch = (data.batch || []).map(item => ({
+          ...item,
+          downloadLocation: item.downloadLocation || item.tv_folder_name || ''
+        }));
+        updateIngestBatchDisplay();
+      } catch (err) {
+        console.error('Failed to load batch:', err);
+      }
+    }
+    
+    function loadIngestTvFolders() {
+      fetch('/api/tv-folders')
+        .then(r => r.json())
+        .then(data => {
+          ingestTvSuggestions = data.folders || [];
+        })
+        .catch(err => console.error('Failed to load TV folders:', err));
+    }
+    
+    function filterIngestTvFolders() {
+      const input = document.getElementById('ingest-tv-folder-input').value.toLowerCase().trim();
+      const dropdown = document.getElementById('ingest-tv-folder-dropdown');
+      
+      if (!input) {
+        dropdown.classList.add('hidden');
+        return;
+      }
+      
+      const filtered = ingestTvSuggestions.filter(folder =>
+        folder.toLowerCase().includes(input)
+      );
+      
+      displayIngestTvFolderDropdown(filtered.slice(0, 15));
+    }
+    
+    function displayIngestTvFolderDropdown(folders) {
+      const dropdown = document.getElementById('ingest-tv-folder-dropdown');
+      dropdown.innerHTML = '';
+      
+      if (folders.length === 0) {
+        dropdown.classList.add('hidden');
+        return;
+      }
+      
+      folders.forEach(folder => {
+        const div = document.createElement('div');
+        div.className = 'px-3 py-2 hover:bg-slate-800 cursor-pointer text-white text-sm border-b border-slate-700 last:border-b-0';
+        div.textContent = folder;
+        div.onclick = () => {
+          document.getElementById('ingest-tv-folder-input').value = folder;
+          dropdown.classList.add('hidden');
+        };
+        dropdown.appendChild(div);
+      });
+      
+      dropdown.classList.remove('hidden');
+    }
+    
+    function toggleIngestTvDropdown() {
+      const dropdown = document.getElementById('ingest-tv-folder-dropdown');
+      if (!dropdown.classList.contains('hidden')) {
+        dropdown.classList.add('hidden');
+      } else {
+        filterIngestTvFolders();
+      }
+    }
+    
+    async function addToIngestBatch() {
+      const magnet = document.getElementById('ingest-magnet-input').value.trim();
+      const category = document.getElementById('ingest-category-select').value;
+      const tvFolder = document.getElementById('ingest-tv-folder-input').value.trim();
+      const errorDiv = document.getElementById('ingest-error');
+      
+      errorDiv.classList.add('hidden');
+      
+      if (!magnet || !magnet.startsWith('magnet:')) {
+        errorDiv.textContent = 'Invalid magnet link.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            magnet,
+            category: category === 'show' ? 'tv' : category,
+            downloadLocation: category === 'show' ? tvFolder : ''
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to add magnet');
+        }
+        ingestBatch = [...ingestBatch.filter(item => item.id !== data.id), data];
+        document.getElementById('ingest-magnet-input').value = '';
+        document.getElementById('ingest-tv-folder-input').value = '';
+        updateIngestBatchDisplay();
+      } catch (err) {
+        errorDiv.textContent = err.message || 'Failed to add magnet.';
+        errorDiv.classList.remove('hidden');
+      }
+    }
+    
+    async function removeFromIngestBatch(id) {
+      ingestBatch = ingestBatch.filter(item => item.id !== id);
+      updateIngestBatchDisplay();
+      try {
+        await fetch(`/api/batch/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.error('Failed to delete batch item:', err);
+        loadIngestBatch();
+      }
+    }
+    
+    function updateIngestBatchDisplay() {
+      const container = document.getElementById('ingest-batch-list');
+      const countSpan = document.getElementById('batch-count');
+      const submitBtn = document.getElementById('submit-batch-btn');
+      
+      countSpan.textContent = ingestBatch.length;
+      submitBtn.disabled = ingestBatch.length === 0;
+      
+      container.innerHTML = '';
+      ingestBatch.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-3 rounded-lg bg-slate-800 border border-slate-700';
+        const magnetDisplay = item.magnet.substring(0, 60) + (item.magnet.length > 60 ? '...' : '');
+        div.innerHTML = `
+          <div style="flex:1;">
+            <div style="font-size:0.85em;color:#bbb;margin-bottom:0.3em;word-break:break-all;">${magnetDisplay}</div>
+            <div style="font-size:0.8em;color:#888;">
+              <span class="badge" style="display:inline-flex;margin-right:0.5em;">${item.category.toUpperCase()}</span>
+              ${item.downloadLocation ? '<span class="badge" style="display:inline-flex;">' + item.downloadLocation + '</span>' : ''}
+            </div>
+          </div>
+          <button type="button" onclick="removeFromIngestBatch('${item.id}')" class="ml-2 px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-bold flex-shrink-0">Remove</button>
+        `;
+        container.appendChild(div);
+      });
+    }
+    
+    async function submitBatchMagnets(e) {
+      if (e) e.preventDefault();
+      if (ingestBatch.length === 0) return;
+      
+      const errorDiv = document.getElementById('ingest-error');
+      errorDiv.classList.add('hidden');
+      
+      try {
+        const res = await fetch('/api/batch/submit', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to submit batch');
+        }
+        ingestBatch = (data.remaining || []).map(item => ({
+          ...item,
+          downloadLocation: item.downloadLocation || ''
+        }));
+        updateIngestBatchDisplay();
+        loadDownloads();
+      } catch (err) {
+        errorDiv.textContent = err.message || 'Submit failed.';
+        errorDiv.classList.remove('hidden');
+      }
+    }
+    
+    loadIngestTvFolders();
+    loadIngestBatch();
+
+    // --- Library Management Functions ---
+    let selectedFolderPath = '';
+    let pathsList = [];
+
+    function browseForFolder() {
+      document.getElementById('folder-modal').classList.remove('hidden');
+      selectedFolderPath = '';
+      document.getElementById('folder-display').innerHTML = '<span class="text-slate-400">No folder selected</span>';
+    }
+
+    function closeFolderModal() {
+      document.getElementById('folder-modal').classList.add('hidden');
+      selectedFolderPath = '';
+    }
+
+    function selectFolder() {
+      fetch('/api/browse')
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            alert('Error: ' + data.error);
+            return;
+          }
+          if (data.folder) {
+            selectedFolderPath = data.folder;
+            document.getElementById('folder-display').innerHTML = `<span class="text-white font-mono text-sm">${data.folder}</span>`;
+            document.getElementById('lib-path').value = data.folder;
+            closeFolderModal();
+          }
+        })
+        .catch(err => {
+          alert('Failed to browse folders: ' + err);
+        });
+    }
+
+    function addPathToList() {
+      const path = document.getElementById('lib-path').value.trim();
+      const label = document.getElementById('lib-label').value.trim();
+      const category = document.getElementById('lib-cat').value;
+
+      if (!path) {
+        alert('Please select or enter a path.');
+        return;
+      }
+
+      pathsList.push({ path, label: label || path, category });
+      document.getElementById('lib-path').value = '';
+      document.getElementById('lib-label').value = '';
+
+      updatePathListDisplay();
+    }
+
+    function updatePathListDisplay() {
+      const container = document.getElementById('multi-paths');
+      container.innerHTML = '';
+      pathsList.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700';
+        div.innerHTML = `
+          <div>
+            <div class="text-xs text-slate-400 font-bold uppercase">${item.category}</div>
+            <div class="text-sm text-white font-mono">${item.label}</div>
+          </div>
+          <button type="button" onclick="removePathFromList(${idx})" class="text-red-500 hover:text-red-400 font-bold">✕</button>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function removePathFromList(idx) {
+      pathsList.splice(idx, 1);
+      updatePathListDisplay();
+    }
+
+    async function addLibrary(e) {
+      e.preventDefault();
+      const errorDiv = document.getElementById('library-error');
+      errorDiv.classList.add('hidden');
+
+      if (pathsList.length === 0) {
+        errorDiv.textContent = 'Add at least one library path.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+
+      let allOk = true;
+      for (const item of pathsList) {
+        try {
+          const res = await fetch('/api/library', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: item.category, path: item.path, label: item.label })
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            allOk = false;
+            errorDiv.textContent = data.msg || 'Failed to add library.';
+            errorDiv.classList.remove('hidden');
+          }
+        } catch (err) {
+          allOk = false;
+          errorDiv.textContent = 'Network error.';
+          errorDiv.classList.remove('hidden');
+        }
+      }
+
+      if (allOk) {
+        pathsList = [];
+        updatePathListDisplay();
+        loadLibraries();
+      }
+    }
+
+    function loadLibraries() {
+      fetch('/api/stats')
+        .then(r => r.json())
+        .then(data => {
+          const libraries = data.libraries || { movie: [], show: [] };
+          renderPoolCards('movie', libraries.movie);
+          renderPoolCards('show', libraries.show);
+        })
+        .catch(err => console.error('Failed to load libraries:', err));
+    }
+
+    function renderPoolCards(category, libs) {
+      const container = document.getElementById('pool-' + category);
+      container.innerHTML = '';
+      if (libs.length === 0) {
+        container.innerHTML = '<div class="text-slate-400 text-sm">No ' + category + ' libraries added yet.</div>';
+        return;
+      }
+      libs.forEach(lib => {
+        const card = document.createElement('div');
+        card.className = 'pool-card';
+        card.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div style="font-weight:700;color:#fff;margin-bottom:0.3em;">${lib.label}</div>
+              <div style="font-size:0.9em;color:#bbb;font-family:monospace;">${lib.path}</div>
+            </div>
+            <button onclick="removeLibrary('${category}', '${lib.id}')" class="btn-bevel btn-bevel-red" style="padding:0.4rem 0.8rem;font-size:0.85em;">Remove</button>
+          </div>
+          <div style="display:flex;gap:0.5em;margin-top:0.5em;">
+            <span class="badge">Total: ${lib.totalSpace} GB</span>
+            <span class="badge badge-green">Free: ${lib.availableSpace} GB</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function removeLibrary(category, libId) {
+      fetch('/api/library', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, id: libId })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            loadLibraries();
+          }
+        })
+        .catch(err => console.error('Failed to remove library:', err));
+    }
+
+    // ========== DOWNLOADS TAB FUNCTIONALITY ==========
+    let _currentDownloadsTab = 'active';
+    let _currentCompletedSort = 'status';
+    let _completedDownloads = [];
+
+    function switchDownloadsTab(tab) {
+      _currentDownloadsTab = tab;
+      document.getElementById('downloads-active-content').classList.toggle('hidden', tab !== 'active');
+      document.getElementById('downloads-completed-content').classList.toggle('hidden', tab !== 'completed');
+      document.getElementById('tab-active-downloads').style.color = tab === 'active' ? '#4eaaff' : '#bbb';
+      document.getElementById('tab-active-downloads').style.borderBottom = tab === 'active' ? '3px solid #4eaaff' : '3px solid transparent';
+      document.getElementById('tab-completed-downloads').style.color = tab === 'completed' ? '#4eaaff' : '#bbb';
+      document.getElementById('tab-completed-downloads').style.borderBottom = tab === 'completed' ? '3px solid #4eaaff' : '3px solid transparent';
+      
+      if (tab === 'completed' && _completedDownloads.length === 0) {
+        loadCompletedDownloads();
+      }
+    }
+
+    function sortCompletedDownloads(sortBy) {
+      _currentCompletedSort = sortBy;
+      
+      // Update button styles
+      document.querySelectorAll('.completed-sort-btn').forEach(btn => {
+        btn.style.background = 'transparent';
+        btn.style.color = '#bbb';
+        btn.style.borderColor = 'rgba(255,255,255,0.1)';
+      });
+      document.getElementById('sort-' + sortBy).style.background = 'rgba(78,170,255,0.15)';
+      document.getElementById('sort-' + sortBy).style.color = '#4eaaff';
+      document.getElementById('sort-' + sortBy).style.borderColor = 'rgba(78,170,255,0.3)';
+      
+      // Sort the data
+      let sorted = [..._completedDownloads];
+      if (sortBy === 'status') {
+        sorted.sort((a, b) => (a.seed_status || '').localeCompare(b.seed_status || ''));
+      } else if (sortBy === 'name') {
+        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      } else if (sortBy === 'size') {
+        sorted.sort((a, b) => parseFloat(b.size || 0) - parseFloat(a.size || 0));
+      }
+      
+      renderCompletedDownloads(sorted);
+    }
+
+    function loadDownloads() {
+      fetch('/api/downloads')
+        .then(r => r.json())
+        .then(data => {
+          const container = document.getElementById('downloads-list');
+          container.innerHTML = '';
+          const downloads = data.downloads || [];
+          if (downloads.length === 0) {
+            const message = data.error 
+              ? `<div style="text-align:center;padding:2rem;grid-column:1/-1;">
+                   <div style="color:#ff3b3b;font-weight:700;margin-bottom:0.5rem;">⚠ ${data.error}</div>
+                   <div style="color:#bbb;font-size:0.95em;">Please ensure Tixati is running on localhost:8888</div>
+                 </div>`
+              : '<div style="grid-column:1/-1;text-slate-400 text-center py-8">No active downloads.</div>';
+            container.innerHTML = message;
+            return;
+          }
+          downloads.forEach(dl => {
+            const card = document.createElement('div');
+            card.className = 'download-item';
+            const progressBarColor = '#4eaaff';
+            const progressBarBg = 'rgba(78,170,255,0.2)';
+            const progressPercent = dl.progress ? parseFloat(dl.progress.replace('%', '')) : 0;
+            card.innerHTML = `
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0.8em;">
+                <div style="flex:1;">
+                  <div style="font-weight:700;color:#fff;margin-bottom:0.3em;word-break:break-word;">${dl.name}</div>
+                  <div style="font-size:0.85em;color:#bbb;margin-bottom:0.5em;">
+                    <span class="badge badge-blue">${dl.state.toUpperCase()}</span>
+                  </div>
+                </div>
+                <button onclick="removeDownload('${dl.name.replace(/'/g, "\\'")}')" class="btn-remove-download" style="margin-left:1em;flex-shrink:0;">Remove</button>
+              </div>
+              <div style="margin-bottom:0.8em;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3em;">
+                  <span style="font-size:0.9em;color:#bbb;">Progress</span>
+                  <span style="font-size:0.9em;color:#fff;font-weight:700;">${progressPercent.toFixed(1)}%</span>
+                </div>
+                <div style="height:6px;background:${progressBarBg};border-radius:3px;overflow:hidden;">
+                  <div style="height:100%;background:${progressBarColor};width:${progressPercent}%;transition:width 0.3s;"></div>
+                </div>
+              </div>
+              <div style="font-size:0.85em;color:#bbb;margin-bottom:0.6em;">
+                <div style="margin-bottom:0.4em;"><b style="color:#4eaaff;">Speed:</b> ↓ ${dl.dlspeed} / ↑ ${dl.upspeed}</div>
+                <div style="margin-bottom:0.4em;"><b style="color:#bbb;">Size:</b> ${dl.size}</div>
+                <div><b style="color:#bbb;">ETA:</b> ${dl.eta || '∞'}</div>
+                ${dl.target_path ? `<div style="margin-top:0.4em;color:#4eaaff;font-size:0.8em;">Target: ${dl.target_path}</div>` : ''}
+              </div>
+            `;
+            container.appendChild(card);
+          });
+        })
+        .catch(err => {
+          console.error('Failed to load downloads:', err);
+          const container = document.getElementById('downloads-list');
+          container.innerHTML = '<div style="grid-column:1/-1;text-slate-400 text-center py-8">Failed to load downloads.</div>';
+        });
+    }
+
+    function loadCompletedDownloads() {
+      fetch('/api/completed')
+        .then(r => r.json())
+        .then(data => {
+          _completedDownloads = data.completed || [];
+          sortCompletedDownloads(_currentCompletedSort);
+        })
+        .catch(err => {
+          console.error('Failed to load completed downloads:', err);
+          document.getElementById('completed-downloads-list').innerHTML = '<div style="text-slate-400 text-center py-8">Failed to load completed downloads.</div>';
+        });
+    }
+
+    function renderCompletedDownloads(downloads) {
+      const container = document.getElementById('completed-downloads-list');
+      container.innerHTML = '';
+      
+      if (downloads.length === 0) {
+        container.innerHTML = '<div style="text-slate-400 text-center py-8">No completed downloads.</div>';
+        return;
+      }
+      
+      downloads.forEach(dl => {
+        const card = document.createElement('div');
+        card.className = 'download-item completed';
+        
+        let statusBadge = 'Completed';
+        let statusColor = '#00e676';
+        if (dl.seed_status === 'active') {
+          statusBadge = 'Active Seeding';
+          statusColor = '#00e676';
+        } else if (dl.seed_status === 'standby') {
+          statusBadge = 'Standby Seeding';
+          statusColor = '#ff9800';
+        }
+        
+        card.innerHTML = `
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0.8em;">
+            <div style="flex:1;">
+              <div style="font-weight:700;color:#fff;margin-bottom:0.3em;word-break:break-word;">${dl.name}</div>
+              <div style="font-size:0.85em;color:#bbb;margin-bottom:0.5em;">
+                <span class="badge" style="background:rgba(${statusColor === '#00e676' ? '0,230,118' : '255,152,0'},0.12);color:${statusColor};border-color:rgba(${statusColor === '#00e676' ? '0,230,118' : '255,152,0'},0.25);">${statusBadge}</span>
+              </div>
+              ${dl.target_path ? `<div style="font-size:0.85em;color:#4eaaff;margin-bottom:0.5em;">Target: ${dl.target_path}</div>` : ''}
+            </div>
+            <button onclick="removeDownload('${dl.name.replace(/'/g, "\\'")}')" class="btn-remove-download" style="margin-left:1em;flex-shrink:0;">Remove</button>
+          </div>
+          <div style="font-size:0.85em;color:#bbb;margin-bottom:0.6em;">
+            <div style="margin-bottom:0.4em;"><b style="color:#bbb;">Size:</b> ${dl.size}</div>
+            <div><b style="color:#00e676;">↑ Upload Speed:</b> ${dl.upspeed}</div>
+          </div>
+          ${dl.target_path ? `<div style="display:flex;gap:0.6em;align-items:center;">`+
+            `<button onclick=\"moveNow('${dl.name.replace(/'/g, "\\'")}')\" class=\"btn-bevel btn-bevel-blue\" style=\"padding:0.4rem 0.8rem;font-size:0.85em;\">Move Now</button>`+
+            `<span style=\"font-size:0.8em;color:#bbb;\">Move from temp to target</span>`+
+          `</div>` : ''}
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function removeDownload(name) {
+      if (!confirm('Remove this download?')) return;
+      fetch('/api/downloads/' + encodeURIComponent(name), {
+        method: 'DELETE'
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            loadDownloads();
+            if (_currentDownloadsTab === 'completed') {
+              loadCompletedDownloads();
+            }
+          } else {
+            alert('Failed to remove download: ' + (data.msg || 'Unknown error'));
+          }
+        })
+        .catch(err => alert('Error: ' + err));
+    }
+
+    function moveNow(name) {
+      fetch('/api/move-now/' + encodeURIComponent(name), { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            alert('Moved to ' + data.moved_to);
+            loadCompletedDownloads();
+          } else {
+            alert(data.msg || 'Move failed');
+          }
+        })
+        .catch(err => alert('Error: ' + err));
+    }
+
+    // --- TV Folder Smart Search (old - for Settings tab) ---
+    // (TV folder functions moved to batch ingest tab)
+
+    loadLibraries();
+    
+    // Helper function to format seeding time
+    function formatSeeding(seconds) {
+      if (!seconds || seconds < 0) return '—';
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      
+      if (days > 0) return `${days}d ${hours}h`;
+      if (hours > 0) return `${hours}h ${mins}m`;
+      return `${mins}m`;
+    }
+    
+    // Auto-manage downloads (remove at 2.0 ratio or 2x uploaded)
+    async function autoManageDownloads() {
+      try {
+        const res = await fetch('/api/downloads/auto-manage', { method: 'POST' });
+        const data = await res.json();
+        if (data.success && data.count > 0) {
+          console.log(`[Auto-Manage] Removed ${data.count} torrents:`, data.removed);
+          loadDownloads(); // Refresh the list
+        }
+      } catch (err) {
+        // Silently fail - qBittorrent may not be running
+        console.debug('[Auto-Manage] qBittorrent unavailable');
+      }
+    }
+    
+    // Auto-refresh downloads every 2 seconds when tab is visible
+    setInterval(() => {
+      if (document.getElementById('view-downloads').classList.contains('hidden') === false) {
+        loadDownloads();
+        if (_currentDownloadsTab === 'completed') {
+          loadCompletedDownloads();
+        }
+      }
+    }, 2000);
+  </script>
+</body>
+</html>
+    <main class="p-6 md:p-8 lg:p-12">
+        <div id="view-dashboard">
+        <h2 class="text-2xl font-bold text-white mb-8">Drive Usage</h2>
+        <div id="drives-list" class="space-y-6"></div>
+        </div>
+        <div id="view-downloads" class="hidden">
+        <h2 class="text-xl md:text-2xl font-bold text-white mb-4 md:mb-8">Active Downloads</h2>

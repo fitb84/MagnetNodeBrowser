@@ -16,12 +16,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _selectedTab = 0;
 
   late Future<Map<String, dynamic>> _librariesFuture;
+  late Future<List<Map<String, dynamic>>> _tvIndexFuture;
 
   @override
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: ApiClient.baseUrl);
     _librariesFuture = ApiClient.getLibraries();
+    _tvIndexFuture = ApiClient.getTvIndex();
   }
 
   @override
@@ -72,6 +74,213 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Copied to clipboard')),
+    );
+  }
+
+  Future<void> _refreshTvIndex({bool rescan = false}) async {
+    setState(() {
+      _tvIndexFuture = ApiClient.getTvIndex(refresh: rescan);
+    });
+  }
+
+  Future<void> _openIndexEditor({Map<String, dynamic>? entry}) async {
+    final seriesController = TextEditingController(text: entry?['series'] ?? '');
+    final pathController = TextEditingController(text: entry?['seriesPath'] ?? '');
+    final existingSeasonPaths = (entry?['seasonPaths'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final seasonsController = TextEditingController(
+      text: existingSeasonPaths.isEmpty
+          ? ''
+          : existingSeasonPaths.map((e) => e['season']?.toString() ?? '').where((e) => e.isNotEmpty).join(', '),
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(entry == null ? 'Add TV Index Entry' : 'Edit TV Index Entry'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: seriesController,
+                decoration: const InputDecoration(labelText: 'Series Name', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pathController,
+                decoration: const InputDecoration(labelText: 'Series Path', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: seasonsController,
+                decoration: const InputDecoration(
+                  labelText: 'Seasons (comma separated, optional)',
+                  hintText: 'e.g., 1, 2, 3',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+
+    final series = seriesController.text.trim();
+    final path = pathController.text.trim();
+    if (series.isEmpty || path.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Series and path are required')),
+      );
+      return;
+    }
+
+    final seasons = seasonsController.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .map(int.tryParse)
+        .whereType<int>()
+        .toList();
+
+    final updatedSeasonPaths = seasons
+        .map((s) {
+          final existing = existingSeasonPaths.firstWhere(
+            (p) => p['season']?.toString() == s.toString(),
+            orElse: () => <String, dynamic>{},
+          );
+          return {
+            'season': s,
+            'path': existing['path'] ?? path,
+          };
+        })
+        .toList();
+
+    try {
+      if (entry == null) {
+        await ApiClient.addTvIndexEntry(
+          series: series,
+          seriesPath: path,
+          seasonPaths: updatedSeasonPaths,
+        );
+      } else {
+        await ApiClient.updateTvIndexEntry(entry['id'], {
+          'series': series,
+          'seriesPath': path,
+          'seasonPaths': updatedSeasonPaths,
+        });
+      }
+      if (mounted) {
+        await _refreshTvIndex();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Index saved')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteIndexEntry(String entryId) async {
+    try {
+      await ApiClient.deleteTvIndexEntry(entryId);
+      await _refreshTvIndex();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Entry removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAddLibraryDialog(String category) async {
+    final pathController = TextEditingController();
+    final labelController = TextEditingController();
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Add ${category == 'movie' ? 'Movie' : 'TV Show'} Library'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: pathController,
+                decoration: const InputDecoration(
+                  labelText: 'Library Path',
+                  hintText: 'e.g., D:\\Movies or /mnt/media/movies',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: labelController,
+                decoration: const InputDecoration(
+                  labelText: 'Label (optional)',
+                  hintText: 'e.g., Primary Movies',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final path = pathController.text.trim();
+              if (path.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Path cannot be empty')),
+                );
+                return;
+              }
+
+              try {
+                await ApiClient.addLibrary(
+                  category,
+                  path,
+                  labelController.text.trim(),
+                );
+                if (mounted) {
+                  Navigator.pop(context);
+                  setState(() {
+                    _librariesFuture = ApiClient.getLibraries();
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✓ Library added successfully')),
+                  );
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error: $e')),
+                );
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -277,6 +486,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       onRefresh: () async {
         setState(() {
           _librariesFuture = ApiClient.getLibraries();
+          _tvIndexFuture = ApiClient.getTvIndex(refresh: true);
         });
       },
       child: FutureBuilder<Map<String, dynamic>>(
@@ -314,9 +524,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 24),
-              Text(
-                'Movies (${movies.length})',
-                style: Theme.of(context).textTheme.titleMedium,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Movies (${movies.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, color: Color(0xFFff3b3b)),
+                    onPressed: () => _showAddLibraryDialog('movie'),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               ...movies.map((lib) {
@@ -384,9 +603,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               }).toList(),
               const SizedBox(height: 24),
-              Text(
-                'TV Shows (${shows.length})',
-                style: Theme.of(context).textTheme.titleMedium,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'TV Shows (${shows.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, color: Color(0xFFff3b3b)),
+                    onPressed: () => _showAddLibraryDialog('show'),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               ...shows.map((lib) {
@@ -453,6 +681,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               }).toList(),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'TV Library Index',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => _refreshTvIndex(rescan: true),
+                        child: const Text('Rescan'),
+                      ),
+                      const SizedBox(width: 4),
+                      ElevatedButton(
+                        onPressed: () => _openIndexEditor(),
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF222222)),
+                        child: const Text('Add Entry'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _tvIndexFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Index error: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
+                        TextButton(
+                          onPressed: () => _refreshTvIndex(),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    );
+                  }
+                  final entries = snapshot.data ?? [];
+                  if (entries.isEmpty) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('No cached series yet.'),
+                        TextButton(
+                          onPressed: () => _refreshTvIndex(rescan: true),
+                          child: const Text('Scan Libraries'),
+                        ),
+                      ],
+                    );
+                  }
+                  return Column(
+                    children: entries.map((entry) {
+                      final seasons = (entry['seasonPaths'] as List?)?.length ?? 0;
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          title: Text(entry['series'] ?? 'Series'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(entry['seriesPath'] ?? ''),
+                              Text('Seasons tracked: $seasons'),
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.orange),
+                                onPressed: () => _openIndexEditor(entry: entry),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                onPressed: () => _deleteIndexEntry(entry['id'] ?? ''),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
             ],
           );
         },

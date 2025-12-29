@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="192"
+    android:viewportHeight="192">
+    <!-- Warm vintage bulb silhouette -->
+    <path
+        android:pathData="M96 28 C68 28 50 54 50 82 C50 102 60 124 73 136 L73 142 C73 156 82 166 96 166 C110 166 119 156 119 142 L119 136 C132 124 142 102 142 82 C142 54 124 28 96 28 Z"
+        android:fillColor="#f6d17a"
+        android:strokeColor="#c0871d"
+        android:strokeWidth="2" />
+
+    <!-- Soft glow halo -->
+    <path
+        android:pathData="M96 34 C71 34 56 56 56 80 C56 103 72 122 96 122 C120 122 136 103 136 80 C136 56 121 34 96 34 Z"
+        android:fillColor="#f6d17a"
+        android:alpha="0.35" />
+
+    <!-- Left glass highlight -->
+    <path
+        android:pathData="M76 46 C64 58 60 74 60 86 C60 102 66 112 72 118"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="4"
+        android:alpha="0.28"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round" />
+
+    <!-- Filament posts -->
+    <path
+        android:pathData="M82 112 L82 130"
+        android:strokeColor="#8b5a00"
+        android:strokeWidth="3"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M110 112 L110 130"
+        android:strokeColor="#8b5a00"
+        android:strokeWidth="3"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- Filament coil -->
+    <path
+        android:pathData="M82 112 C88 104 104 104 110 112"
+        android:strokeColor="#a86300"
+        android:strokeWidth="4"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M82 118 C90 126 102 126 110 118"
+        android:strokeColor="#f09d00"
+        android:strokeWidth="3"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Metal base -->
+    <path
+        android:pathData="M78 136 L114 136 L114 150 C114 158 104 164 96 164 C88 164 78 158 78 150 Z"
+        android:fillColor="#4e4032"
+        android:strokeColor="#2f251d"
+        android:strokeWidth="2" />
+
+    <!-- Base ridges -->
+    <path
+        android:pathData="M80 140 L112 140"
+        android:strokeColor="#826b56"
+        android:strokeWidth="2"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M80 146 L112 146"
+        android:strokeColor="#826b56"
+        android:strokeWidth="2"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- Center filament glow -->
+    <path
+        android:pathData="M96 92 C90 92 86 96 86 102 C86 108 90 112 96 112 C102 112 106 108 106 102 C106 96 102 92 96 92 Z"
+        android:fillColor="#ffb347"
+        android:alpha="0.7" />
+</vector>

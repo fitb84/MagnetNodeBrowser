@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../services/api_client.dart';
 import '../utils/magnet_parser.dart';
@@ -14,10 +15,13 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
   @override
   bool get wantKeepAlive => true;
 
+  static const platform = MethodChannel('com.example.magnetnodebrowser/magnet');
   InAppWebViewController? webViewController;
   bool _webViewInitialized = false;
   final String homeUrl = 'https://ext.to';
-  String _selectedCategory = 'movie';
+  List<Map<String, dynamic>> _tvIndex = [];
+  List<Map<String, dynamic>> _showLibraries = [];
+  bool _tvDataLoading = false;
 
   @override
   void initState() {
@@ -132,9 +136,9 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
     );
   }
 
-  void _handleMagnetLink(String magnetLink) {
+
+  void _handleMagnetLink(String magnetLink) async {
     final magnet = MagnetLink.parse(magnetLink);
-    
     if (magnet == null || !magnet.isValid) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -144,77 +148,277 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
       return;
     }
 
-    // Show confirmation dialog
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Add Magnet Link?'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(magnet.getDisplayString()),
-                const SizedBox(height: 16),
-                const Text(
-                  'Select category:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                DropdownButton<String>(
-                  isExpanded: true,
-                  value: _selectedCategory,
-                  items: const [
-                    DropdownMenuItem(value: 'movie', child: Text('Movie')),
-                    DropdownMenuItem(value: 'tv', child: Text('TV Show')),
-                    DropdownMenuItem(value: 'music', child: Text('Music')),
-                    DropdownMenuItem(value: 'other', child: Text('Other')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        _selectedCategory = value;
-                      });
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _addMagnetToQueue(magnet.rawMagnetLink);
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
-      );
-    }
+    if (!mounted) return;
+    final selection = await _showCategoryAndLocationDialog(magnet);
+    if (selection == null) return;
+    await _addMagnetToIngestBatch(
+      magnetLink: magnet.rawMagnetLink,
+      category: selection['category'] as String,
+      downloadLocation: selection['downloadLocation'] as String,
+    );
   }
 
-  Future<void> _addMagnetToQueue(String magnetLink) async {
+  Future<void> _addMagnetToIngestBatch({
+    required String magnetLink,
+    required String category,
+    required String downloadLocation,
+  }) async {
     try {
-      await ApiClient.addMagnet(magnetLink, _selectedCategory, '');
+      await ApiClient.addBatchItem(
+        magnet: magnetLink,
+        category: category,
+        downloadLocation: downloadLocation,
+      );
+      // Notify Ingest tab to refresh immediately
+      try {
+        platform.invokeMethod('addToBatch', {'magnet': magnetLink});
+      } catch (e) {
+        print('Error sending to batch: $e');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✓ Magnet link added to queue!')),
+          const SnackBar(content: Text('Magnet saved to batch for editing.')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✗ Error adding magnet: $e')),
+          SnackBar(content: Text('Failed to queue magnet: $e')),
         );
       }
     }
+  }
+
+  Future<void> _ensureTvData() async {
+    if (_tvDataLoading) return;
+    setState(() => _tvDataLoading = true);
+    try {
+      final index = await ApiClient.getTvIndex();
+      final libs = await ApiClient.getLibraries();
+      if (!mounted) return;
+      setState(() {
+        _tvIndex = index.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _showLibraries = (libs['show'] as List<dynamic>? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('TV data load failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tvDataLoading = false);
+    }
+  }
+
+  Future<Map<String, String>?> _showCategoryAndLocationDialog(MagnetLink magnet) async {
+    await _ensureTvData();
+    String category = 'movie';
+    String? selectedSeriesId;
+    String? selectedSeriesPath;
+    String? errorText;
+
+    return showDialog<Map<String, String>?>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final tvOptions = _tvIndex
+              .map((e) => DropdownMenuItem<String>(
+                  value: e['id']?.toString(),
+                  child: Text(e['series'] ?? 'Series'),
+                ))
+              .toList();
+
+            return AlertDialog(
+              title: const Text('Add to Batch'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(magnet.getDisplayString()),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: category,
+                      items: const [
+                        DropdownMenuItem(value: 'movie', child: Text('Movie')),
+                        DropdownMenuItem(value: 'tv', child: Text('TV Series')),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          category = val ?? 'movie';
+                          if (category != 'tv') {
+                            selectedSeriesId = null;
+                            selectedSeriesPath = null;
+                          }
+                          errorText = null;
+                        });
+                      },
+                      decoration: const InputDecoration(labelText: 'Type'),
+                    ),
+                    if (category == 'tv') ...[
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedSeriesId,
+                        items: tvOptions,
+                        onChanged: (val) {
+                          setState(() {
+                            selectedSeriesId = val;
+                            final match = _tvIndex.firstWhere(
+                              (e) => e['id']?.toString() == val,
+                              orElse: () => <String, dynamic>{},
+                            );
+                            selectedSeriesPath = match['seriesPath']?.toString();
+                            errorText = null;
+                          });
+                        },
+                        decoration: const InputDecoration(labelText: 'Series'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final created = await _showCreateSeriesDialog();
+                          if (created != null) {
+                            await _ensureTvData();
+                            setState(() {
+                              selectedSeriesPath = created['seriesPath'];
+                              final match = _tvIndex.firstWhere(
+                                (e) => e['seriesPath'] == created['seriesPath'],
+                                orElse: () => <String, dynamic>{},
+                              );
+                              selectedSeriesId = match['id']?.toString();
+                              errorText = null;
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create new series'),
+                      ),
+                      if (errorText != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(errorText!, style: const TextStyle(color: Colors.red)),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (category == 'tv' && (selectedSeriesPath == null || selectedSeriesPath!.isEmpty)) {
+                      setState(() => errorText = 'Select or create a series');
+                      return;
+                    }
+                    Navigator.pop(context, {
+                      'category': category,
+                      'downloadLocation': category == 'tv' ? (selectedSeriesPath ?? '') : '',
+                    });
+                  },
+                  child: const Text('Add to Batch'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<Map<String, String>?> _showCreateSeriesDialog() async {
+    final nameController = TextEditingController();
+    String? selectedLibId;
+    String? errorText;
+
+    return showDialog<Map<String, String>?>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final libItems = _showLibraries
+                .map((lib) => DropdownMenuItem<String>(
+                      value: lib['id']?.toString(),
+                      child: Text(lib['label'] ?? lib['path'] ?? 'Library'),
+                    ))
+                .toList();
+            return AlertDialog(
+              title: const Text('Create Series'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Series name'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedLibId,
+                    items: libItems,
+                    onChanged: (val) {
+                      setState(() {
+                        selectedLibId = val;
+                        errorText = null;
+                      });
+                    },
+                    decoration: const InputDecoration(labelText: 'Library'),
+                  ),
+                  if (errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(errorText!, style: const TextStyle(color: Colors.red)),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty || selectedLibId == null) {
+                      setState(() => errorText = 'Name and library are required');
+                      return;
+                    }
+                    final lib = _showLibraries.firstWhere(
+                      (l) => l['id']?.toString() == selectedLibId,
+                      orElse: () => {},
+                    );
+                    final basePath = lib['path']?.toString() ?? '';
+                    if (basePath.isEmpty) {
+                      setState(() => errorText = 'Library path missing');
+                      return;
+                    }
+                    final seriesPath = '$basePath/$name';
+                    try {
+                      await ApiClient.addTvIndexEntry(
+                        series: name,
+                        seriesPath: seriesPath,
+                        libraryId: lib['id']?.toString(),
+                      );
+                      Navigator.pop(context, {
+                        'series': name,
+                        'seriesPath': seriesPath,
+                      });
+                    } catch (e) {
+                      setState(() => errorText = e.toString());
+                    }
+                  },
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _injectMagnetLinkHandler() async {
