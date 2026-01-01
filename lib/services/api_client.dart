@@ -30,6 +30,12 @@ class ApiClient {
     throw Exception('Failed to load stats');
   }
 
+  static Future<Map<String, dynamic>> getSystemUsage() async {
+    final res = await http.get(Uri.parse('$_baseUrl/api/system-usage')).timeout(timeout);
+    if (res.statusCode == 200) return jsonDecode(res.body);
+    throw Exception('Failed to load system usage');
+  }
+
   static Future<List<Map<String, dynamic>>> getDownloads() async {
     final res = await http.get(Uri.parse('$_baseUrl/api/downloads')).timeout(timeout);
     if (res.statusCode == 200) {
@@ -85,6 +91,7 @@ class ApiClient {
     required String magnet,
     String category = 'movie',
     String downloadLocation = '',
+    Map<String, dynamic>? metadata,
   }) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/api/batch'),
@@ -93,6 +100,7 @@ class ApiClient {
         'magnet': magnet,
         'category': category,
         'downloadLocation': downloadLocation,
+        if (metadata != null) 'metadata': metadata,
       }),
     ).timeout(timeout);
     if (res.statusCode == 200 || res.statusCode == 201) {
@@ -100,6 +108,27 @@ class ApiClient {
     }
     final data = jsonDecode(res.body);
     throw Exception(data['error'] ?? 'Failed to add batch item');
+  }
+
+  static Future<Map<String, dynamic>> alertMagnetIngested({
+    required String magnet,
+    required String targetPath,
+    String category = 'movie',
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/magnet-ingested'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'magnet': magnet,
+        'target_path': targetPath,
+        'category': category,
+      }),
+    ).timeout(timeout);
+    if (res.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(res.body));
+    }
+    final data = jsonDecode(res.body);
+    throw Exception(data['error'] ?? 'Failed to alert magnet ingestion');
   }
 
   static Future<Map<String, dynamic>> updateBatchItem({
@@ -139,6 +168,59 @@ class ApiClient {
     final data = jsonDecode(res.body);
     throw Exception(data['error'] ?? 'Failed to submit batch');
   }
+
+  // -------- Torrent parsing and folder creation --------
+  static Future<Map<String, dynamic>> parseTorrent(String title) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/parse-torrent'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'title': title}),
+    ).timeout(timeout);
+    if (res.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(res.body));
+    }
+    final data = jsonDecode(res.body);
+    throw Exception(data['error'] ?? 'Failed to parse torrent title');
+  }
+
+  static Future<Map<String, dynamic>> parseAndMatch(String title, String category) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/parse-and-match'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'title': title, 'category': category}),
+    ).timeout(timeout);
+    if (res.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(res.body));
+    }
+    final data = jsonDecode(res.body);
+    throw Exception(data['error'] ?? 'Failed to parse and match torrent');
+  }
+
+  static Future<Map<String, dynamic>> createDestination({
+    required String seriesName,
+    int? seasonNumber,
+    required String libraryPath,
+    bool isNewSeries = false,
+    bool isNewSeason = false,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/api/create-destination'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'series_name': seriesName,
+        'season_number': seasonNumber,
+        'library_path': libraryPath,
+        'is_new_series': isNewSeries,
+        'is_new_season': isNewSeason,
+      }),
+    ).timeout(timeout);
+    if (res.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(res.body));
+    }
+    final data = jsonDecode(res.body);
+    throw Exception(data['error'] ?? 'Failed to create destination');
+  }
+
   static Future<void> removeDownload(String name) async {
     final res = await http.delete(
       Uri.parse('$_baseUrl/api/downloads/${Uri.encodeComponent(name)}')

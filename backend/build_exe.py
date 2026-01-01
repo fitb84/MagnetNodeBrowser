@@ -11,6 +11,7 @@ import os
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 main_script = os.path.join(backend_dir, 'run_local_app.py')
 templates_dir = os.path.join(backend_dir, 'templates')
+static_dir = os.path.join(backend_dir, 'static')
 
 # PyInstaller arguments
 args = [
@@ -23,6 +24,7 @@ args = [
     '--workpath=./build',  # Build directory
     '--specpath=.',  # Spec file location
     f'--add-data={templates_dir}:templates',  # Include templates folder
+    f'--add-data={static_dir}:static',  # Include static folder
     '-y',  # Overwrite without asking
 ]
 

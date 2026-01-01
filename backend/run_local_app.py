@@ -26,6 +26,9 @@ import shutil
 import re
 from urllib.parse import parse_qs, urlparse
 from flask import Flask, render_template, send_from_directory, request, jsonify
+from emby_library import EmbyLibraryDb, find_appropriate_season_folder, extract_season_episode_numbers
+from torrent_parser import TorrentParser, parse_download_metadata
+from folder_manager import FolderManager
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -86,10 +89,16 @@ def browse_folder():
 
 # --- CONFIGURATION ---
 CONFIG_FILE = 'magnetnode_config.json'
+CONFIG_BACKUP = 'magnetnode_config.backup.json'
 TIXATI_HOST = 'localhost'
 TIXATI_PORT = 8888
 TIXATI_BASE = f'http://{TIXATI_HOST}:{TIXATI_PORT}'
-TEMP_DOWNLOAD_DIR = r"K:\\Temp Downloads"  # Temp location where Tixati writes by default
+TEMP_DOWNLOAD_DIR = r"K:\Temp Downloads"  # Temp location where Tixati writes by default
+WATCHER_POLL_INTERVAL = 10  # Check every 10 seconds instead of 30
+
+# Emby library database path (dynamic username)
+WINDOWS_USERNAME = os.getenv('USERNAME', 'fitb8')  # Fallback to fitb8 if USERNAME env var not set
+EMBY_DB_PATH = rf"C:\Users\{WINDOWS_USERNAME}\AppData\Roaming\Emby-Server\programdata\data\library.db"
 
 DEFAULT_CONFIG = {
     "libraries": {
@@ -97,38 +106,114 @@ DEFAULT_CONFIG = {
         "show": []
     },
     "recent_tv_folders": [],
-    "intents": [],  # pending moves [{magnet, name_hint, target_path, category}]
+    "intents": [],  # pending copies [{magnet, name_hint, target_path, category}]
     "library_index": {
         "show": []
     },
-    "batch": []  # persisted ingest queue shared by web + mobile
+    "batch": [],  # persisted ingest queue shared by web + mobile
+    "emby_db_path": EMBY_DB_PATH,  # Path to Emby's library.db for auto-location lookup
+    "use_emby_lookup": True  # Enable automatic lookup from Emby database
 }
 
-# --- SMART STORAGE ENGINE (simplified) ---
+# --- SMART STORAGE ENGINE (with robust persistence) ---
 class SmartStorageManager:
     def __init__(self):
         self.config = self.load_config()
+        self._save_lock = threading.Lock()
 
     def load_config(self):
+        # Try loading from main config file first
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, 'r') as f:
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    if "recent_tv_folders" not in data: data["recent_tv_folders"] = []
-                    if "intents" not in data: data["intents"] = []
-                    if "library_index" not in data:
-                        data["library_index"] = {"show": []}
-                    if "batch" not in data: data["batch"] = []
+                    data = self._migrate_config(data)
+                    print(f"[Config] Loaded from {CONFIG_FILE}")
                     return data
-            except:
-                return DEFAULT_CONFIG
-        return DEFAULT_CONFIG
+            except json.JSONDecodeError as e:
+                print(f"[Config] Main config corrupted: {e}")
+            except Exception as e:
+                print(f"[Config] Error loading main config: {e}")
+        
+        # Try loading from backup if main failed
+        if os.path.exists(CONFIG_BACKUP):
+            try:
+                with open(CONFIG_BACKUP, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    data = self._migrate_config(data)
+                    print(f"[Config] Restored from backup {CONFIG_BACKUP}")
+                    # Immediately save to main config
+                    self._write_config_file(CONFIG_FILE, data)
+                    return data
+            except Exception as e:
+                print(f"[Config] Backup also failed: {e}")
+        
+        print("[Config] Using default configuration")
+        return self._migrate_config(DEFAULT_CONFIG.copy())
+    
+    def _migrate_config(self, data):
+        """Ensure all required fields exist in config"""
+        if "recent_tv_folders" not in data: 
+            data["recent_tv_folders"] = []
+        if "intents" not in data: 
+            data["intents"] = []
+        if "library_index" not in data:
+            data["library_index"] = {"show": []}
+        if "batch" not in data: 
+            data["batch"] = []
+        if "libraries" not in data:
+            data["libraries"] = {"movie": [], "show": []}
+        if "emby_db_path" not in data:
+            data["emby_db_path"] = EMBY_DB_PATH
+        if "use_emby_lookup" not in data:
+            data["use_emby_lookup"] = True
+        return data
+    
+    def _write_config_file(self, filepath, data):
+        """Safely write config to file with atomic write"""
+        temp_file = filepath + '.tmp'
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            # Atomic rename (on Windows this may not be fully atomic, but safer)
+            if os.path.exists(filepath):
+                os.replace(temp_file, filepath)
+            else:
+                os.rename(temp_file, filepath)
+            return True
+        except Exception as e:
+            print(f"[Config] Error writing {filepath}: {e}")
+            # Clean up temp file if exists
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            return False
 
     def save_config(self):
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=2)
+        """Save config with backup and thread safety"""
+        with self._save_lock:
+            # Create backup of current config before saving
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    shutil.copy2(CONFIG_FILE, CONFIG_BACKUP)
+                except Exception as e:
+                    print(f"[Config] Backup failed: {e}")
+            
+            # Write new config
+            if self._write_config_file(CONFIG_FILE, self.config):
+                print(f"[Config] Saved to {CONFIG_FILE}")
+            else:
+                print("[Config] Save failed!")
+    
+    def force_reload(self):
+        """Force reload config from disk"""
+        self.config = self.load_config()
+        return self.config
 
     def add_intent(self, magnet, name_hint, target_path, category):
+        """Add a pending copy intent for a completed torrent"""
         if not target_path:
             return
         entry = {
@@ -143,6 +228,7 @@ class SmartStorageManager:
         self.save_config()
 
     def pop_intent_by_name(self, name):
+        """Remove intent after successful copy"""
         intents = self.config.get('intents', [])
         for idx, intent in enumerate(intents):
             if intent.get('name_hint') == name:
@@ -160,13 +246,14 @@ class SmartStorageManager:
         self.config['batch'] = batch_items
         self.save_config()
 
-    def add_batch_item(self, magnet, category, download_location):
+    def add_batch_item(self, magnet, category, download_location, metadata=None):
         item = {
             "id": str(int(time.time() * 1000)),
             "magnet": magnet,
             "category": category,
             "downloadLocation": download_location,
-            "createdAt": int(time.time())
+            "createdAt": int(time.time()),
+            "metadata": metadata or {}  # Store torrent metadata (series, season, etc)
         }
         batch = self.get_batch()
         # Drop any existing item with same magnet to avoid duplicates
@@ -180,7 +267,7 @@ class SmartStorageManager:
         updated = None
         for item in batch:
             if item.get('id') == item_id:
-                for key in ['magnet', 'category', 'downloadLocation']:
+                for key in ['magnet', 'category', 'downloadLocation', 'metadata']:
                     if key in updates and updates[key] is not None:
                         item[key] = updates[key]
                 updated = item
@@ -296,15 +383,78 @@ class SmartStorageManager:
 storage_mgr = SmartStorageManager()
 auto_init_libraries(storage_mgr)
 
-# Ensure temp download directory exists
-try:
-    os.makedirs(TEMP_DOWNLOAD_DIR, exist_ok=True)
-except Exception as e:
-    print(f"[Init] Could not ensure temp dir {TEMP_DOWNLOAD_DIR}: {e}")
+# Initialize Emby database connection
+emby_db = None
+emby_db_path = storage_mgr.config.get('emby_db_path', EMBY_DB_PATH)
+use_emby_lookup = storage_mgr.config.get('use_emby_lookup', True)
+
+if use_emby_lookup and os.path.exists(emby_db_path):
+    try:
+        emby_db = EmbyLibraryDb(emby_db_path)
+        if emby_db.connected:
+            print(f"[Emby] Database connected: {emby_db_path}")
+        else:
+            print(f"[Emby] Failed to connect to database: {emby_db_path}")
+            emby_db = None
+    except Exception as e:
+        print(f"[Emby] Error initializing Emby database: {e}")
+        emby_db = None
+else:
+    if use_emby_lookup:
+        print(f"[Emby] Database not found at: {emby_db_path}")
 
 
-def find_intent_for_name(name_hint):
-    return next((i for i in storage_mgr.config.get('intents', []) if i.get('name_hint') == name_hint), None)
+def normalize_category(raw):
+    cat = (raw or 'movie').lower()
+    return 'tv' if cat in ['tv', 'show', 'series'] else 'movie'
+
+
+def clean_torrent_name(raw_name):
+    """Clean torrent name by removing common prefixes and normalizing whitespace"""
+    if not raw_name:
+        return raw_name
+    
+    # Remove common prefixes
+    name = raw_name.strip()
+    # Remove www.UIndex.org and similar prefixes with whitespace
+    name = re.sub(r'^\s*www\.uindex\.org\s*', '', name, flags=re.IGNORECASE)
+    # Remove other common tracker prefixes
+    name = re.sub(r'^\s*\[.*?\]\s*', '', name)  # Remove [tracker] tags
+    name = re.sub(r'^\s*\{.*?\}\s*', '', name)  # Remove {tracker} tags
+    # Normalize whitespace
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def match_torrent_name(name_hint, actual_name):
+    """Check if actual torrent name matches name_hint with some tolerance
+    
+    Returns (match_score, clean_actual_name) where match_score is:
+    - 3: exact match after cleaning
+    - 2: name_hint is substring of actual (ignoring case)
+    - 1: actual is substring of name_hint (ignoring case)
+    - 0: no match
+    """
+    # Clean both names
+    clean_hint = clean_torrent_name(name_hint).lower()
+    clean_actual = clean_torrent_name(actual_name).lower()
+    
+    if not clean_hint or not clean_actual:
+        return 0, clean_actual
+    
+    # Exact match
+    if clean_hint == clean_actual:
+        return 3, clean_actual
+    
+    # Substring matches (name_hint is in actual)
+    if clean_hint in clean_actual:
+        return 2, clean_actual
+    
+    # Reverse substring (actual is in name_hint)
+    if clean_actual in clean_hint:
+        return 1, clean_actual
+    
+    return 0, clean_actual
 
 
 def normalize_category(raw):
@@ -313,20 +463,32 @@ def normalize_category(raw):
 
 
 def send_magnet_to_tixati(magnet, target_path, category):
+    """Add magnet to Tixati (downloads to temp), store intent for copy to final location"""
     category = normalize_category(category)
     if not magnet or not magnet.startswith('magnet:'):
         return False, "Invalid magnet link"
+    
     try:
+        # Add magnet to Tixati - it will download to default/temp location
         resp = requests.post(f"{TIXATI_BASE}/transfers/action", data={
             'addlink': 'Add',
             'addlinktext': magnet
         })
-        if resp.status_code == 200:
-            name_hint = magnet_display_name(magnet) or ''
-            if target_path:
-                storage_mgr.add_intent(magnet, name_hint, target_path, category)
-            return True, "Magnet added to Tixati"
-        return False, "Tixati error: " + resp.text
+        
+        if resp.status_code != 200:
+            return False, "Tixati error: " + resp.text
+        
+        # Extract and clean torrent name
+        name_hint = magnet_display_name(magnet) or ''
+        clean_name = clean_torrent_name(name_hint)
+        
+        if target_path and clean_name:
+            storage_mgr.add_intent(magnet, clean_name, target_path, category)
+            print(f"[Magnet] Added: {clean_name} -> {target_path}")
+            return True, f"Magnet added, will copy to {target_path} when complete"
+        
+        return True, "Magnet added to Tixati"
+        
     except Exception as e:
         return False, f"Tixati error: {str(e)}"
 
@@ -407,55 +569,225 @@ def scan_tv_library(lib_entry):
     return results
 
 
-def move_worker():
+def update_torrent_save_path(torrent_name, new_save_path, checkbox_name=None):
+    """Update the save path (seeding location) for a torrent in Tixati"""
+    try:
+        # Construct the POST data to update save path
+        # This will try to navigate to the transfer details page and update the save path
+        post_data = {
+            'save_path': new_save_path,
+        }
+        if checkbox_name:
+            post_data[checkbox_name] = 'on'
+        
+        resp = requests.post(f"{TIXATI_BASE}/transfers/action", data=post_data, timeout=5)
+        if resp.status_code == 200:
+            print(f"[UpdateSavePath] Updated save path for {torrent_name} to {new_save_path}")
+            return True
+        else:
+            print(f"[UpdateSavePath] Failed to update (HTTP {resp.status_code}): {torrent_name}")
+            return False
+    except Exception as e:
+        print(f"[UpdateSavePath] Error updating save path for {torrent_name}: {e}")
+        return False
+
+
+def check_path_writable(path):
+    """Check if path is writable; create if doesn't exist"""
+    try:
+        os.makedirs(path, exist_ok=True)
+        # Test write permission by creating a temp file
+        test_file = os.path.join(path, '.write_test_' + str(int(time.time())))
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def copy_worker():
+    """Monitor temp folder for completed torrents and copy them to final location
+    
+    Triggers copy when status changes from Downloading -> Seeding
+    Triggers cleanup when status changes to Seeding Ratio Exceeded
+    """
+    torrent_status_cache = {}  # Track previous status to detect transitions
+    
     while True:
         try:
             intents = list(storage_mgr.config.get('intents', []))
             if intents:
+                # Get transfer list from Tixati
                 resp = requests.get(f"{TIXATI_BASE}/transfers")
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 table = soup.find('table', class_='xferslist')
-                completed_names = []
+                torrent_info = {}  # Map name to (status, checkbox_name)
+                
                 if table:
                     rows = table.find_all('tr')[1:]
                     for row in rows:
                         cols = row.find_all('td')
                         if len(cols) < 5:
                             continue
+                        checkbox = cols[0].find('input', {'type': 'checkbox'})
                         name = cols[1].get_text(strip=True)
-                        status = cols[4].get_text(strip=True).lower()
-                        if status not in ('downloading', 'checking', 'connecting'):
-                            completed_names.append(name)
+                        status = cols[4].get_text(strip=True).lower()  # Get full status text
+                        checkbox_name = checkbox['name'] if checkbox and 'name' in checkbox.attrs else None
+                        torrent_info[name] = (status, checkbox_name)
+                        print(f"[CopyWorker] {name}: {status}")
 
                 for intent in intents:
                     name_hint = intent.get('name_hint')
                     target_path = intent.get('target_path')
-                    if not name_hint or not target_path:
+                    category = intent.get('category', 'movie')
+                    if not name_hint:
                         continue
-                    if name_hint not in completed_names:
+                    
+                    # Find best matching torrent by name (with fuzzy matching)
+                    best_match = None
+                    best_score = 0
+                    best_status = None
+                    best_checkbox = None
+                    
+                    for actual_name, (status, checkbox_name) in torrent_info.items():
+                        score, _ = match_torrent_name(name_hint, actual_name)
+                        if score > best_score:
+                            best_score = score
+                            best_match = actual_name
+                            best_status = status
+                            best_checkbox = checkbox_name
+                    
+                    if best_score == 0:
+                        # No match found for this intent
+                        print(f"[CopyWorker] No matching torrent for {name_hint}")
+                        continue
+                    
+                    print(f"[CopyWorker] Matched {name_hint} -> {best_match} (score: {best_score}) | Status: {best_status}")
+                    
+                    current_status = best_status
+                    checkbox_name = best_checkbox
+                    previous_status = torrent_status_cache.get(name_hint)
+                    
+                    # Update status cache
+                    if current_status:
+                        torrent_status_cache[name_hint] = current_status
+                    
+                    # Skip if still downloading
+                    if current_status and current_status in ('downloading', 'checking', 'connecting'):
+                        continue
+                    
+                    # Handle seeding ratio exceeded: delete from temp and Tixati
+                    if current_status and 'seeding ratio exceeded' in current_status:
+                        try:
+                            print(f"[CopyWorker] Ratio exceeded for {name_hint}, cleaning up")
+                            
+                            # Remove from Tixati
+                            if checkbox_name:
+                                post_data = {'remove': 'Remove', checkbox_name: 'on'}
+                                requests.post(f"{TIXATI_BASE}/transfers/action", data=post_data, timeout=5)
+                            
+                            # Delete from temp folder
+                            src = os.path.join(TEMP_DOWNLOAD_DIR, name_hint)
+                            if os.path.exists(src):
+                                if os.path.isdir(src):
+                                    shutil.rmtree(src)
+                                else:
+                                    os.remove(src)
+                                print(f"[CopyWorker] Deleted temp: {src}")
+                            
+                            # Remove intent and status cache
+                            storage_mgr.pop_intent_by_name(name_hint)
+                            torrent_status_cache.pop(name_hint, None)
+                            print(f"[CopyWorker] Cleaned up intent for {name_hint}")
+                        except Exception as clean_err:
+                            print(f"[CopyWorker] Cleanup failed for {name_hint}: {clean_err}")
                         continue
 
-                    src = os.path.join(TEMP_DOWNLOAD_DIR, name_hint)
-                    if not os.path.exists(src):
-                        continue
-
-                    try:
-                        os.makedirs(target_path, exist_ok=True)
-                        dest = os.path.join(target_path, name_hint)
-                        if os.path.exists(dest):
-                            dest = f"{dest}_{int(time.time())}"
-                        shutil.move(src, dest)
-                        storage_mgr.pop_intent_by_name(name_hint)
-                    except Exception as move_err:
-                        print(f"[MoveWorker] Move failed for {name_hint}: {move_err}")
+                    # Trigger copy when status changes to "Seeding" (download complete)
+                    # Only copy once per torrent (when transitioning from downloading -> seeding)
+                    if current_status == 'seeding' and previous_status != 'seeding':
+                        src = os.path.join(TEMP_DOWNLOAD_DIR, name_hint)
+                        
+                        print(f"[CopyWorker] Download complete for {name_hint}, starting copy")
+                        
+                        if os.path.exists(src):
+                            # File complete, copy to final location
+                            if target_path:
+                                try:
+                                    # Check write permissions
+                                    writable, err = check_path_writable(target_path)
+                                    if not writable:
+                                        print(f"[CopyWorker] Target not writable: {target_path} ({err})")
+                                        continue
+                                    
+                                    # Smart folder detection for TV shows
+                                    final_path = target_path
+                                    if category.lower() in ['tv', 'show']:
+                                        season_num, _ = extract_season_episode_numbers(name_hint)
+                                        appropriate_folder = find_appropriate_season_folder(target_path, season_num)
+                                        if appropriate_folder and appropriate_folder != target_path:
+                                            final_path = appropriate_folder
+                                            print(f"[CopyWorker] Using season folder: {final_path}")
+                                    
+                                    # Prepare destination path
+                                    dest = os.path.join(final_path, name_hint)
+                                    if os.path.exists(dest):
+                                        dest = f"{dest}_{int(time.time())}"
+                                    
+                                    print(f"[CopyWorker] Copying {src} to {dest}")
+                                    
+                                    # Copy instead of move
+                                    if os.path.isdir(src):
+                                        shutil.copytree(src, dest, dirs_exist_ok=True)
+                                    else:
+                                        shutil.copy2(src, dest)
+                                    
+                                    print(f"[CopyWorker] Copy complete: {dest}")
+                                    
+                                    # Verify copy succeeded before cleanup
+                                    if os.path.exists(dest):
+                                        # Delete source from temp
+                                        try:
+                                            if os.path.isdir(src):
+                                                shutil.rmtree(src)
+                                            else:
+                                                os.remove(src)
+                                            print(f"[CopyWorker] Cleaned up temp: {src}")
+                                        except Exception as cleanup_err:
+                                            print(f"[CopyWorker] Could not cleanup temp {src}: {cleanup_err}")
+                                        
+                                        # Remove intent and status cache
+                                        storage_mgr.pop_intent_by_name(name_hint)
+                                        torrent_status_cache.pop(name_hint, None)
+                                        print(f"[CopyWorker] Intent removed for {name_hint}")
+                                    else:
+                                        print(f"[CopyWorker] Copy verification failed for {name_hint}")
+                                        
+                                except Exception as copy_err:
+                                    print(f"[CopyWorker] Copy failed for {name_hint}: {copy_err}")
+                                    # Keep intent for retry
+                        else:
+                            # File already deleted or moved
+                            storage_mgr.pop_intent_by_name(name_hint)
+                            torrent_status_cache.pop(name_hint, None)
+                            print(f"[CopyWorker] Source no longer exists: {src}")
 
         except Exception as e:
-            print(f"[MoveWorker] Error: {e}")
+            print(f"[CopyWorker] Error: {e}")
 
-        time.sleep(30)
+        time.sleep(WATCHER_POLL_INTERVAL)
 
 
-threading.Thread(target=move_worker, daemon=True).start()
+# Ensure temp download directory exists
+try:
+    os.makedirs(TEMP_DOWNLOAD_DIR, exist_ok=True)
+except Exception as e:
+    print(f"[Init] Could not ensure temp dir {TEMP_DOWNLOAD_DIR}: {e}")
+
+
+# Start copy worker daemon thread
+threading.Thread(target=copy_worker, daemon=True).start()
 
 @app.route('/')
 def index():
@@ -518,6 +850,86 @@ def get_stats():
         "recents": storage_mgr.config.get("recent_tv_folders", []),
         "bandwidth": bandwidth
     })
+
+@app.route('/api/system-usage')
+def get_system_usage():
+    """Get comprehensive system usage stats: CPU, RAM, GPU, and bandwidth"""
+    stats = {}
+    
+    # CPU Usage
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        cpu_count = psutil.cpu_count(logical=False)
+        cpu_count_logical = psutil.cpu_count(logical=True)
+        cpu_freq = psutil.cpu_freq()
+        stats['cpu'] = {
+            'percent': round(cpu_percent, 1),
+            'cores': cpu_count,
+            'threads': cpu_count_logical,
+            'frequency': round(cpu_freq.current, 0) if cpu_freq else 0
+        }
+    except Exception as e:
+        stats['cpu'] = {'error': str(e)}
+    
+    # RAM Usage
+    try:
+        mem = psutil.virtual_memory()
+        stats['ram'] = {
+            'total_gb': round(mem.total / (1024**3), 2),
+            'used_gb': round(mem.used / (1024**3), 2),
+            'available_gb': round(mem.available / (1024**3), 2),
+            'percent': round(mem.percent, 1)
+        }
+    except Exception as e:
+        stats['ram'] = {'error': str(e)}
+    
+    # GPU Usage (Windows only via nvidia-smi or basic detection)
+    try:
+        import subprocess
+        if os.name == 'nt':
+            # Try nvidia-smi for NVIDIA GPUs
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu', 
+                                   '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\\n')
+                gpus = []
+                for line in lines:
+                    parts = line.split(',')
+                    if len(parts) >= 4:
+                        gpus.append({
+                            'utilization': int(parts[0].strip()),
+                            'memory_used_mb': int(parts[1].strip()),
+                            'memory_total_mb': int(parts[2].strip()),
+                            'temperature': int(parts[3].strip())
+                        })
+                stats['gpu'] = gpus if gpus else [{'info': 'NVIDIA GPU detected but no data'}]
+            else:
+                stats['gpu'] = [{'info': 'No NVIDIA GPU or nvidia-smi not available'}]
+        else:
+            stats['gpu'] = [{'info': 'GPU monitoring not supported on this platform'}]
+    except FileNotFoundError:
+        stats['gpu'] = [{'info': 'nvidia-smi not found'}]
+    except Exception as e:
+        stats['gpu'] = [{'error': str(e)}]
+    
+    # Bandwidth from Tixati
+    bandwidth = {"inrate": "0 B/s", "outrate": "0 B/s"}
+    try:
+        resp = requests.get(f"{TIXATI_BASE}/bandwidth", timeout=5)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        inrate = soup.find('td', id='inrate')
+        outrate = soup.find('td', id='outrate')
+        if inrate:
+            bandwidth["inrate"] = inrate.get_text(strip=True)
+        if outrate:
+            bandwidth["outrate"] = outrate.get_text(strip=True)
+    except Exception as e:
+        print(f"[Bandwidth Error] {str(e)}")
+    
+    stats['bandwidth'] = bandwidth
+    
+    return jsonify(stats)
 
 @app.route('/api/tv-folders', methods=['GET'])
 def get_tv_folders():
@@ -587,11 +999,12 @@ def batch_collection():
     magnet = (data.get('magnet') or '').strip()
     category = normalize_category(data.get('category'))
     download_location = (data.get('downloadLocation') or data.get('tv_folder_name') or '').strip()
+    metadata = data.get('metadata', {})
 
     if not magnet or not magnet.startswith('magnet:'):
         return jsonify({"error": "Invalid magnet link"}), 400
 
-    item = storage_mgr.add_batch_item(magnet, category, download_location)
+    item = storage_mgr.add_batch_item(magnet, category, download_location, metadata)
     return jsonify(item), 201
 
 
@@ -665,6 +1078,206 @@ def submit_batch_queue():
         "remaining": remaining
     })
 
+@app.route('/api/magnet-ingested', methods=['POST'])
+def magnet_ingested():
+    """Alert backend when a magnet is ingested from the app"""
+    data = request.json or {}
+    magnet = data.get('magnet', '').strip()
+    target_path = data.get('target_path', '').strip()
+    category = data.get('category', 'movie')
+    
+    if not magnet or not magnet.startswith('magnet:'):
+        return jsonify({"error": "Invalid magnet link"}), 400
+    
+    if not target_path:
+        return jsonify({"error": "target_path required"}), 400
+    
+    try:
+        # Extract and clean name
+        name_hint = magnet_display_name(magnet) or ''
+        clean_name = clean_torrent_name(name_hint)
+        
+        # Store intent for copy worker
+        if clean_name:
+            storage_mgr.add_intent(magnet, clean_name, target_path, category)
+            print(f"[MagnetIngested] {clean_name} -> {target_path}")
+            return jsonify({
+                "success": True,
+                "message": f"Magnet registered: {clean_name}",
+                "clean_name": clean_name
+            })
+        else:
+            return jsonify({"error": "Could not extract torrent name"}), 400
+            
+    except Exception as e:
+        print(f"[MagnetIngested] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/parse-torrent', methods=['POST'])
+def parse_torrent():
+    """Parse a torrent title to extract series/season/episode information"""
+    data = request.json or {}
+    title = data.get('title', '').strip()
+    
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    
+    try:
+        metadata = parse_download_metadata(title)
+        return jsonify({
+            "success": True,
+            "metadata": metadata
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/parse-and-match', methods=['POST'])
+def parse_and_match():
+    """Parse torrent title and match against Emby database for folder suggestions"""
+    data = request.json or {}
+    title = data.get('title', '').strip()
+    category = data.get('category', 'tv').strip()
+    
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    
+    try:
+        # Parse the torrent title
+        metadata = parse_download_metadata(title)
+        series_name = metadata.get('series_name')
+        season_number = metadata.get('season_number')
+        
+        folder_options = []
+        confidence = metadata.get('confidence', 'low')
+        
+        # For TV shows, try to match against Emby database
+        if category == 'tv' and emby_db and emby_db.connected and series_name:
+            try:
+                # Find matching series in Emby
+                series_location = emby_db.find_series_location(series_name)
+                
+                if series_location:
+                    # Found exact or close match - upgrade confidence
+                    confidence = 'high'
+                    
+                    # Try to find appropriate season folder - prioritize this
+                    if season_number:
+                        season_folder = find_appropriate_season_folder(series_location, season_number)
+                        if season_folder:
+                            folder_options.insert(0, {
+                                'path': season_folder,
+                                'label': f'{os.path.basename(series_location)} / Season {season_number:02d} (Existing)',
+                                'type': 'season',
+                                'priority': 1
+                            })
+                    
+                    # Add series root as option (lower priority)
+                    folder_options.append({
+                        'path': series_location,
+                        'label': os.path.basename(series_location),
+                        'type': 'series',
+                        'priority': 2
+                    })
+                else:
+                    # No match in Emby - provide library root options
+                    confidence = 'medium' if confidence == 'high' else confidence
+                    
+                    # Get TV library paths from config
+                    tv_libraries = storage_mgr.config.get('libraries', {}).get('show', [])
+                    for lib in tv_libraries:
+                        lib_path = lib.get('path', '')
+                        if lib_path and os.path.exists(lib_path):
+                            folder_options.append({
+                                'path': lib_path,
+                                'label': f"{lib.get('label', 'TV Library')} (New Series)",
+                                'type': 'library'
+                            })
+            except Exception as e:
+                print(f"[Emby Match] Error querying database: {e}")
+        
+        # For movies or if no Emby match, provide library options
+        if not folder_options:
+            lib_type = 'show' if category == 'tv' else 'movie'
+            libraries = storage_mgr.config.get('libraries', {}).get(lib_type, [])
+            for lib in libraries:
+                lib_path = lib.get('path', '')
+                if lib_path and os.path.exists(lib_path):
+                    folder_options.append({
+                        'path': lib_path,
+                        'label': lib.get('label', 'Library'),
+                        'type': 'library'
+                    })
+        
+        return jsonify({
+            "success": True,
+            "metadata": {
+                **metadata,
+                'confidence': confidence
+            },
+            "folderOptions": folder_options
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/create-destination', methods=['POST'])
+def create_destination():
+    """Create a new series/season folder and return the destination path"""
+    data = request.json or {}
+    series_name = data.get('seriesName', '').strip()
+    season_number = data.get('seasonNumber')
+    library_path = data.get('libraryPath', '').strip()
+    is_new_series = data.get('isNewSeries', False)
+    is_new_season = data.get('isNewSeason', False)
+    
+    if not series_name:
+        return jsonify({"success": False, "error": "Series name is required"}), 400
+    
+    if not library_path:
+        return jsonify({"success": False, "error": "Library path is required"}), 400
+    
+    # Validate library path
+    valid, msg = FolderManager.validate_library_path(library_path)
+    if not valid:
+        return jsonify({"success": False, "error": msg}), 400
+    
+    try:
+        # Parse season number if provided
+        season_num = None
+        if season_number is not None:
+            season_num = int(season_number)
+        
+        success, dest_path, message = FolderManager.get_or_create_destination(
+            series_name,
+            season_num,
+            library_path,
+            is_new_series,
+            is_new_season
+        )
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "destinationPath": dest_path,
+                "message": message
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": message
+            }), 400
+    
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/api/add', methods=['POST'])
 def add_magnet():
     """Add magnet link to Tixati via WebUI"""
@@ -682,7 +1295,7 @@ def add_magnet():
 
 @app.route('/api/downloads', methods=['GET'])
 def list_downloads():
-    """Get list of active downloads (downloading status only) from Tixati WebUI"""
+    """Get list of active downloads (all non-seeding/non-completed statuses) from Tixati WebUI"""
     try:
         resp = requests.get(f"{TIXATI_BASE}/transfers")
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -703,9 +1316,13 @@ def list_downloads():
                 priority = cols[7].get_text(strip=True)
                 eta = cols[8].get_text(strip=True)
                 
-                # Only include torrents with "downloading" status (actively downloading)
+                # Include torrents that are actively downloading or queued (not seeding)
+                # Exclude: seeding, standby, ratio exceeded, stopped, etc.
                 status_lower = status.lower().strip()
-                if status_lower == 'downloading':
+                excluded_keywords = ['seeding', 'standby', 'ratio exceeded', 'stopped', 'complete']
+                is_excluded = any(keyword in status_lower for keyword in excluded_keywords)
+                
+                if not is_excluded:
                     intent = find_intent_for_name(name)
                     downloads.append({
                         "name": name,
@@ -834,32 +1451,6 @@ def remove_download(torrent_name):
     except Exception as e:
         return jsonify({"success": False, "msg": str(e)}), 500
 
-
-@app.route('/api/move-now/<torrent_name>', methods=['POST'])
-def move_now(torrent_name):
-    """Manually trigger move for a completed torrent if an intent exists."""
-    try:
-        intent = find_intent_for_name(torrent_name)
-        if not intent:
-            return jsonify({"success": False, "msg": "No move intent found for this torrent"}), 404
-
-        src = os.path.join(TEMP_DOWNLOAD_DIR, torrent_name)
-        if not os.path.exists(src):
-            return jsonify({"success": False, "msg": "Source not found in temp directory"}), 404
-
-        target_path = intent.get('target_path')
-        if not target_path:
-            return jsonify({"success": False, "msg": "No target path set"}), 400
-
-        os.makedirs(target_path, exist_ok=True)
-        dest = os.path.join(target_path, torrent_name)
-        if os.path.exists(dest):
-            dest = f"{dest}_{int(time.time())}"
-        shutil.move(src, dest)
-        storage_mgr.pop_intent_by_name(torrent_name)
-        return jsonify({"success": True, "moved_to": dest})
-    except Exception as e:
-        return jsonify({"success": False, "msg": str(e)}), 500
 
 @app.route('/api/library', methods=['POST', 'DELETE'])
 def manage_library():

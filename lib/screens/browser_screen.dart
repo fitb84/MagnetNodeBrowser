@@ -21,6 +21,7 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
   final String homeUrl = 'https://ext.to';
   List<Map<String, dynamic>> _tvIndex = [];
   List<Map<String, dynamic>> _showLibraries = [];
+  List<Map<String, dynamic>> _movieLibraries = [];
   bool _tvDataLoading = false;
 
   @override
@@ -76,7 +77,7 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                     },
                     shouldOverrideUrlLoading: (controller, navigationAction) async {
                       final url = navigationAction.request.url.toString();
-                      // Always intercept magnet links
+                      // Always intercept magnet links (with or without ?)
                       if (url.startsWith('magnet:')) {
                         _handleMagnetLink(url);
                         return NavigationActionPolicy.CANCEL;
@@ -84,10 +85,12 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                       // Handle other unsupported schemes
                       if (!url.startsWith('http://') && 
                           !url.startsWith('https://') &&
-                          !url.startsWith('file://')) {
+                          !url.startsWith('file://') &&
+                          !url.startsWith('about:') &&
+                          !url.startsWith('data:')) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Unsupported link type: $url')),
+                            SnackBar(content: Text('Unsupported link type: ${url.length > 50 ? '${url.substring(0, 50)}...' : url}')),
                           );
                         }
                         return NavigationActionPolicy.CANCEL;
@@ -200,7 +203,10 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
         _tvIndex = index.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _showLibraries = (libs['show'] as List<dynamic>? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+          .toList();
+        _movieLibraries = (libs['movie'] as List<dynamic>? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
       });
     } catch (e) {
       if (mounted) {
@@ -218,19 +224,38 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
     String category = 'movie';
     String? selectedSeriesId;
     String? selectedSeriesPath;
+    String movieLocation = '';
     String? errorText;
+    final seriesController = TextEditingController();
+    final locationController = TextEditingController();
 
+    // Parse magnet for smart suggestions
+    final magnetName = magnet.displayName ?? magnet.rawMagnetLink;
+    final parsedSeason = _extractSeasonNumber(magnetName);
+    
     return showDialog<Map<String, String>?>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            // Build TV series options from index
             final tvOptions = _tvIndex
+              .where((e) {
+                final q = seriesController.text.toLowerCase();
+                if (q.isEmpty) return true;
+                return (e['series'] ?? '').toString().toLowerCase().contains(q);
+              })
+              .take(10)
               .map((e) => DropdownMenuItem<String>(
                   value: e['id']?.toString(),
                   child: Text(e['series'] ?? 'Series'),
                 ))
               .toList();
+            
+            // Get movie libraries
+            final movieLibraries = _showLibraries.isEmpty 
+                ? <Map<String, dynamic>>[]
+                : _showLibraries; // Both use show libraries for now
 
             return AlertDialog(
               title: const Text('Add to Batch'),
@@ -239,44 +264,108 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(magnet.getDisplayString()),
+                    // Magnet display
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        magnetName.length > 80 ? '${magnetName.substring(0, 80)}...' : magnetName,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
                     const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: category,
-                      items: const [
-                        DropdownMenuItem(value: 'movie', child: Text('Movie')),
-                        DropdownMenuItem(value: 'tv', child: Text('TV Series')),
+                    
+                    // Category selector
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'movie', label: Text('Movie'), icon: Icon(Icons.movie)),
+                        ButtonSegment(value: 'tv', label: Text('TV'), icon: Icon(Icons.tv)),
                       ],
-                      onChanged: (val) {
+                      selected: {category},
+                      onSelectionChanged: (value) {
                         setState(() {
-                          category = val ?? 'movie';
-                          if (category != 'tv') {
-                            selectedSeriesId = null;
-                            selectedSeriesPath = null;
-                          }
+                          category = value.first;
+                          selectedSeriesId = null;
+                          selectedSeriesPath = null;
+                          seriesController.clear();
+                          locationController.clear();
+                          movieLocation = '';
                           errorText = null;
                         });
                       },
-                      decoration: const InputDecoration(labelText: 'Type'),
                     ),
+                    const SizedBox(height: 16),
+                    
                     if (category == 'tv') ...[
+                      // TV Series search field
+                      TextField(
+                        controller: seriesController,
+                        decoration: const InputDecoration(
+                          labelText: 'Search Series',
+                          hintText: 'Start typing...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedSeriesId,
-                        items: tvOptions,
+                      
+                      // Quick pick chips from TV index
+                      if (_tvIndex.isNotEmpty) ...[
+                        const Text('Quick Select:', style: TextStyle(fontSize: 12, color: Colors.blue)),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: _tvIndex
+                            .where((e) {
+                              final q = seriesController.text.toLowerCase();
+                              if (q.isEmpty) return true;
+                              return (e['series'] ?? '').toString().toLowerCase().contains(q);
+                            })
+                            .take(6)
+                            .map((e) => ActionChip(
+                              label: Text(e['series'] ?? 'Series', style: const TextStyle(fontSize: 12)),
+                              onPressed: () {
+                                setState(() {
+                                  selectedSeriesId = e['id']?.toString();
+                                  seriesController.text = e['series'] ?? '';
+                                  // Build suggested path
+                                  selectedSeriesPath = _buildSeriesPath(e, parsedSeason);
+                                  if (selectedSeriesPath != null) {
+                                    locationController.text = selectedSeriesPath!;
+                                  }
+                                  errorText = null;
+                                });
+                              },
+                            ))
+                            .toList(),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      
+                      // Location field
+                      TextField(
+                        controller: locationController,
+                        decoration: const InputDecoration(
+                          labelText: 'Download Location',
+                          hintText: 'Required for TV',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.folder),
+                        ),
                         onChanged: (val) {
                           setState(() {
-                            selectedSeriesId = val;
-                            final match = _tvIndex.firstWhere(
-                              (e) => e['id']?.toString() == val,
-                              orElse: () => <String, dynamic>{},
-                            );
-                            selectedSeriesPath = match['seriesPath']?.toString();
+                            selectedSeriesPath = val;
                             errorText = null;
                           });
                         },
-                        decoration: const InputDecoration(labelText: 'Series'),
                       ),
+                      const SizedBox(height: 8),
+                      
+                      // Create new series button
                       TextButton.icon(
                         onPressed: () async {
                           final created = await _showCreateSeriesDialog();
@@ -284,6 +373,8 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                             await _ensureTvData();
                             setState(() {
                               selectedSeriesPath = created['seriesPath'];
+                              seriesController.text = created['series'] ?? '';
+                              locationController.text = created['seriesPath'] ?? '';
                               final match = _tvIndex.firstWhere(
                                 (e) => e['seriesPath'] == created['seriesPath'],
                                 orElse: () => <String, dynamic>{},
@@ -293,15 +384,53 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                             });
                           }
                         },
-                        icon: const Icon(Icons.add),
+                        icon: const Icon(Icons.add, size: 18),
                         label: const Text('Create new series'),
                       ),
-                      if (errorText != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(errorText!, style: const TextStyle(color: Colors.red)),
+                    ] else ...[
+                      // Movie category - show library quick picks
+                      if (_movieLibraries.isNotEmpty) ...[
+                        const Text('Select Library:', style: TextStyle(fontSize: 12, color: Colors.blue)),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _movieLibraries.map((lib) => ActionChip(
+                            label: Text(lib['label'] ?? 'Library', style: const TextStyle(fontSize: 12)),
+                            avatar: const Icon(Icons.folder, size: 16),
+                            onPressed: () {
+                              setState(() {
+                                movieLocation = lib['path'] ?? '';
+                                locationController.text = movieLocation;
+                                errorText = null;
+                              });
+                            },
+                          )).toList(),
                         ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: locationController,
+                        decoration: const InputDecoration(
+                          labelText: 'Download Location (optional)',
+                          hintText: 'Leave blank or select library',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.folder),
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            movieLocation = val;
+                            errorText = null;
+                          });
+                        },
+                      ),
                     ],
+                    
+                    if (errorText != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(errorText!, style: const TextStyle(color: Colors.red)),
+                      ),
                   ],
                 ),
               ),
@@ -312,13 +441,14 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (category == 'tv' && (selectedSeriesPath == null || selectedSeriesPath!.isEmpty)) {
-                      setState(() => errorText = 'Select or create a series');
+                    final location = locationController.text.trim();
+                    if (category == 'tv' && location.isEmpty) {
+                      setState(() => errorText = 'Select or enter a series location');
                       return;
                     }
                     Navigator.pop(context, {
                       'category': category,
-                      'downloadLocation': category == 'tv' ? (selectedSeriesPath ?? '') : '',
+                      'downloadLocation': location,
                     });
                   },
                   child: const Text('Add to Batch'),
@@ -329,6 +459,33 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
         );
       },
     );
+  }
+  
+  String? _buildSeriesPath(Map<String, dynamic> entry, int? seasonHint) {
+    // Check for season paths first
+    final seasonPaths = (entry['seasonPaths'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    if (seasonHint != null) {
+      final match = seasonPaths.firstWhere(
+        (s) => s['season']?.toString() == seasonHint.toString(),
+        orElse: () => {},
+      );
+      if (match.isNotEmpty && (match['path'] ?? '').toString().isNotEmpty) {
+        return match['path'].toString();
+      }
+    }
+    // Fall back to first season path or series path
+    if (seasonPaths.isNotEmpty && (seasonPaths.first['path'] ?? '').toString().isNotEmpty) {
+      return seasonPaths.first['path'].toString();
+    }
+    return entry['seriesPath']?.toString();
+  }
+  
+  int? _extractSeasonNumber(String name) {
+    final m1 = RegExp(r'(?i)\bS(\d{1,2})\b').firstMatch(name);
+    if (m1 != null) return int.tryParse(m1.group(1) ?? '');
+    final m2 = RegExp(r'(?i)\bseason\s*(\d{1,2})\b').firstMatch(name);
+    if (m2 != null) return int.tryParse(m2.group(1) ?? '');
+    return null;
   }
 
   Future<Map<String, String>?> _showCreateSeriesDialog() async {
@@ -422,60 +579,119 @@ class _BrowserScreenState extends State<BrowserScreen> with AutomaticKeepAliveCl
   }
 
   Future<void> _injectMagnetLinkHandler() async {
-    // Wait a moment for page to load
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Wait for page DOM to be ready
+    await Future.delayed(const Duration(milliseconds: 300));
     
     if (webViewController == null || !mounted) return;
 
-    // Inject JavaScript to intercept magnet:? link clicks
+    // Robust JavaScript to intercept ALL magnet:? link clicks
     const magnetLinkScript = '''
     (function() {
+      // Prevent double-injection
+      if (window._magnetHandlerInjected) return;
+      window._magnetHandlerInjected = true;
+      
+      function handleMagnetLink(url) {
+        if (url && (url.startsWith('magnet:?') || url.startsWith('magnet:'))) {
+          console.log('MAGNET_LINK:' + url);
+          return true;
+        }
+        return false;
+      }
+      
       // Override window.open to catch magnet:? links
       const originalOpen = window.open;
       window.open = function(url, target, features) {
-        if (url && url.startsWith('magnet:?')) {
-          console.log('MAGNET_LINK:' + url);
-          return null;
-        }
+        if (handleMagnetLink(url)) return null;
         return originalOpen.apply(window, arguments);
       };
-
-      // Handle all clicks on the document
+      
+      // Override location assignment
+      const originalLocationSet = Object.getOwnPropertyDescriptor(window, 'location');
+      
+      // Main click handler - capture phase for priority
       document.addEventListener('click', function(e) {
         let target = e.target;
-        // Traverse up to find a link element
-        while (target && target.tagName !== 'A') {
+        // Traverse up to find any link element
+        while (target && target !== document) {
+          // Check for anchor tags
+          if (target.tagName === 'A') {
+            const href = target.getAttribute('href') || target.href;
+            if (handleMagnetLink(href)) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              return false;
+            }
+          }
+          // Check for onclick handlers that might trigger magnet links
+          if (target.onclick) {
+            const onclickStr = target.onclick.toString();
+            const magnetMatch = onclickStr.match(/magnet:\?[^'"]+/);
+            if (magnetMatch && handleMagnetLink(magnetMatch[0])) {
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+          }
           target = target.parentElement;
         }
-        if (target && target.href && target.href.startsWith('magnet:?')) {
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          // Notify Flutter via console message
-          console.log('MAGNET_LINK:' + target.href);
-          return false;
-        }
       }, true);
-      // Also intercept touchstart for better mobile support
-      document.addEventListener('touchstart', function(e) {
-        let target = e.target;
-        while (target && target.tagName !== 'A') {
-          target = target.parentElement;
-        }
-        if (target && target.href && target.href.startsWith('magnet:?')) {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log('MAGNET_LINK:' + target.href);
-          return false;
-        }
-      }, true);
+      
+      // Touch handler for mobile - both touchstart and touchend
+      ['touchstart', 'touchend'].forEach(function(eventType) {
+        document.addEventListener(eventType, function(e) {
+          let target = e.target;
+          while (target && target !== document) {
+            if (target.tagName === 'A') {
+              const href = target.getAttribute('href') || target.href;
+              if (handleMagnetLink(href)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }
+            }
+            target = target.parentElement;
+          }
+        }, true);
+      });
+      
+      // Also watch for dynamically added links via MutationObserver
+      const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          mutation.addedNodes.forEach(function(node) {
+            if (node.nodeType === 1) { // Element node
+              const links = node.querySelectorAll ? node.querySelectorAll('a[href^="magnet:"]') : [];
+              links.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                  if (handleMagnetLink(link.href)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                }, true);
+              });
+            }
+          });
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      
+      // Pre-process existing magnet links
+      document.querySelectorAll('a[href^="magnet:"]').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+          if (handleMagnetLink(link.href)) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }, true);
+      });
     })();
     ''';
 
     try {
       await webViewController!.evaluateJavascript(source: magnetLinkScript);
     } catch (e) {
-      print('Error injecting magnet link handler: \$e');
+      print('Error injecting magnet link handler: $e');
     }
   }
 }

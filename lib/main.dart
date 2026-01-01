@@ -40,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<Widget> _screens = [
     const DashboardScreen(),
-    const BandwidthScreen(),
+    const SystemUsageScreen(),
     const DownloadsScreen(),
     const IngestScreen(),
     const SettingsScreen(),
@@ -49,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<String> _titles = [
     'Dashboard',
-    'Bandwidth',
+    'System Usage',
     'Downloads',
     'Ingest',
     'Settings',
@@ -89,8 +89,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Dashboard',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.speed),
-            label: 'Bandwidth',
+            icon: Icon(Icons.monitor_heart),
+            label: 'System',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.cloud_download),

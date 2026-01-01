@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../services/api_client.dart';
 
 class DownloadsScreen extends StatefulWidget {
@@ -15,36 +16,47 @@ class _DownloadsScreenState extends State<DownloadsScreen> with SingleTickerProv
   bool _isLoading = true;
   String? _error;
   String _sortBy = 'status';
+  late Timer _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+    // Set up auto-refresh every 5 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) {
+        _loadData();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer.cancel();
     _tabController.dispose();
     super.dispose();
   }
 
   void _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
     try {
       final downloads = await ApiClient.getDownloads();
       final completed = await ApiClient.getCompleted();
-      setState(() {
-        _downloads = downloads;
-        _completed = _sortCompleted(completed);
-      });
+      if (mounted) {
+        setState(() {
+          _downloads = downloads;
+          _completed = _sortCompleted(completed);
+          _error = null;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 

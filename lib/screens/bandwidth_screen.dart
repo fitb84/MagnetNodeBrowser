@@ -2,30 +2,31 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/api_client.dart';
 
-class BandwidthScreen extends StatefulWidget {
-  const BandwidthScreen({Key? key}) : super(key: key);
+class SystemUsageScreen extends StatefulWidget {
+  const SystemUsageScreen({Key? key}) : super(key: key);
 
   @override
-  State<BandwidthScreen> createState() => _BandwidthScreenState();
+  State<SystemUsageScreen> createState() => _SystemUsageScreenState();
 }
 
-class _BandwidthScreenState extends State<BandwidthScreen> {
+class _SystemUsageScreenState extends State<SystemUsageScreen> {
   final List<double> _inHistory = [];
   final List<double> _outHistory = [];
   Timer? _timer;
   bool _loading = true;
   String? _error;
+  Map<String, dynamic> _systemStats = {};
 
   @override
   void initState() {
     super.initState();
-    _pollBandwidth();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _pollBandwidth());
+    _pollSystemUsage();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _pollSystemUsage());
   }
 
-  Future<void> _pollBandwidth() async {
+  Future<void> _pollSystemUsage() async {
     try {
-      final stats = await ApiClient.getStats();
+      final stats = await ApiClient.getSystemUsage();
       final bandwidth = stats['bandwidth'] as Map<String, dynamic>? ?? {};
       
       // Parse bandwidth values from strings like "0 B/s"
@@ -48,6 +49,7 @@ class _BandwidthScreenState extends State<BandwidthScreen> {
         if (_outHistory.length > 60) _outHistory.removeAt(0);
         _inHistory.add(parseSpeed(bandwidth['inrate'] as String?));
         _outHistory.add(parseSpeed(bandwidth['outrate'] as String?));
+        _systemStats = stats;
         _loading = false;
         _error = null;
       });
@@ -64,7 +66,11 @@ class _BandwidthScreenState extends State<BandwidthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final cpu = _systemStats['cpu'] as Map<String, dynamic>? ?? {};
+    final ram = _systemStats['ram'] as Map<String, dynamic>? ?? {};
+    final gpu = _systemStats['gpu'] as List<dynamic>? ?? [];
+    
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -73,7 +79,59 @@ class _BandwidthScreenState extends State<BandwidthScreen> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Global Bandwidth', style: Theme.of(context).textTheme.titleLarge),
+                    Text('System Usage', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 16),
+                    
+                    // CPU Card
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.memory, color: Colors.blue),
+                        title: Text('CPU Usage: ${cpu['percent'] ?? 0}%'),
+                        subtitle: Text(
+                          '${cpu['cores'] ?? 0} cores, ${cpu['threads'] ?? 0} threads @ ${cpu['frequency'] ?? 0} MHz'
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // RAM Card
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.storage, color: Colors.orange),
+                        title: Text('RAM Usage: ${ram['percent'] ?? 0}%'),
+                        subtitle: Text(
+                          '${ram['used_gb'] ?? 0} GB / ${ram['total_gb'] ?? 0} GB (${ram['available_gb'] ?? 0} GB available)'
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // GPU Card(s)
+                    if (gpu.isNotEmpty)
+                      ...gpu.map((g) {
+                        final gpuMap = g as Map<String, dynamic>;
+                        if (gpuMap.containsKey('info') || gpuMap.containsKey('error')) {
+                          return Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.videogame_asset, color: Colors.purple),
+                              title: Text(gpuMap['info'] ?? gpuMap['error'] ?? 'GPU'),
+                            ),
+                          );
+                        }
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.videogame_asset, color: Colors.purple),
+                            title: Text('GPU: ${gpuMap['utilization'] ?? 0}%'),
+                            subtitle: Text(
+                              '${gpuMap['memory_used_mb'] ?? 0} MB / ${gpuMap['memory_total_mb'] ?? 0} MB, ${gpuMap['temperature'] ?? 0}°C'
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    const SizedBox(height: 16),
+                    
+                    // Bandwidth Chart
+                    Text('Network Bandwidth', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 200,

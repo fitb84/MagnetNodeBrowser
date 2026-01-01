@@ -15,12 +15,14 @@ class BatchItem {
   String magnet;
   String category; // 'tv' or 'movie'
   String downloadLocation;
+  Map<String, dynamic>? metadata; // Torrent parsing metadata
 
   BatchItem({
     required this.id,
     required this.magnet,
     required this.category,
     required this.downloadLocation,
+    this.metadata,
   });
 
   factory BatchItem.fromMap(Map<String, dynamic> map) {
@@ -30,6 +32,7 @@ class BatchItem {
       magnet: map['magnet']?.toString() ?? '',
       category: rawCategory == 'show' ? 'tv' : rawCategory,
       downloadLocation: map['downloadLocation']?.toString() ?? '',
+      metadata: map['metadata'] is Map ? Map<String, dynamic>.from(map['metadata'] as Map) : null,
     );
   }
 
@@ -38,14 +41,16 @@ class BatchItem {
         'magnet': magnet,
         'category': category,
         'downloadLocation': downloadLocation,
+        if (metadata != null) 'metadata': metadata,
       };
 
-  BatchItem copyWith({String? magnet, String? category, String? downloadLocation}) {
+  BatchItem copyWith({String? magnet, String? category, String? downloadLocation, Map<String, dynamic>? metadata}) {
     return BatchItem(
       id: id,
       magnet: magnet ?? this.magnet,
       category: category ?? this.category,
       downloadLocation: downloadLocation ?? this.downloadLocation,
+      metadata: metadata ?? this.metadata,
     );
   }
 }
@@ -198,6 +203,7 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
     required String magnet,
     String category = 'movie',
     String downloadLocation = '',
+    Map<String, dynamic>? metadata,
     bool showToast = false,
   }) async {
     try {
@@ -205,6 +211,7 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
         magnet: magnet,
         category: category,
         downloadLocation: downloadLocation,
+        metadata: metadata,
       );
       if (!mounted) return;
       setState(() {
@@ -228,6 +235,376 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
     }
   }
 
+  Future<void> _parseTorrentAndAdd(String magnet, String category) async {
+    try {
+      final displayName = _extractMagnetDisplayName(magnet) ?? magnet;
+      final result = await ApiClient.parseAndMatch(displayName, category);
+      
+      if (!mounted) return;
+      
+      final metadata = result['metadata'] as Map<String, dynamic>?;
+      final folderOptions = (result['folderOptions'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+      
+      // If parsing succeeded and we have series_name, show the dialog
+      if (metadata != null && metadata['series_name'] != null) {
+        _showTorrentParsingDialog(magnet, category, metadata, folderOptions);
+        return;
+      }
+      
+      // Fallback: Parse the name from magnet display name and show dialog for manual entry
+      final fallbackSeriesName = displayName
+          .replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '')  // Remove file extensions
+          .replaceAll(RegExp(r'[._-]'), ' ')  // Replace separators with spaces
+          .trim();
+      
+      final fallbackMetadata = {
+        'series_name': fallbackSeriesName.isNotEmpty ? fallbackSeriesName : 'Unknown',
+        'season_number': null,
+        'episode_number': null,
+        'is_complete_season': false,
+        'is_multi_season': false,
+        'confidence': 'low',
+        'suggested_folder': null,
+      };
+      
+      // Show dialog with fallback metadata so user can edit
+      if (mounted) {
+        _showTorrentParsingDialog(magnet, category, fallbackMetadata, folderOptions);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      
+      // Even on error, try to extract name from magnet for fallback
+      final displayName = _extractMagnetDisplayName(magnet) ?? magnet;
+      final fallbackSeriesName = displayName
+          .replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '')
+          .replaceAll(RegExp(r'[._-]'), ' ')
+          .trim();
+      
+      final fallbackMetadata = {
+        'series_name': fallbackSeriesName.isNotEmpty ? fallbackSeriesName : 'Unknown',
+        'season_number': null,
+        'episode_number': null,
+        'is_complete_season': false,
+        'is_multi_season': false,
+        'confidence': 'low',
+        'suggested_folder': null,
+      };
+      
+      if (mounted) {
+        _showTorrentParsingDialog(magnet, category, fallbackMetadata, []);
+      }
+    }
+  }
+
+  Future<void> _showTorrentParsingDialog(
+    String magnet, 
+    String category, 
+    Map<String, dynamic> metadata, 
+    List<Map<String, dynamic>> folderOptions
+  ) async {
+    bool isNewSeries = false;
+    bool isNewSeason = false;
+    late TextEditingController seriesController;
+    late TextEditingController seasonController;
+    late TextEditingController episodeController;
+    String? selectedFolder;
+    
+    final confidence = metadata['confidence'] as String? ?? 'medium';
+    final confidenceColor = confidence == 'high' 
+        ? Colors.green 
+        : confidence == 'medium' 
+            ? Colors.orange 
+            : Colors.red;
+    
+    seriesController = TextEditingController(text: metadata['series_name'] ?? '');
+    seasonController = TextEditingController(
+      text: metadata['season_number'] != null ? '${metadata['season_number']}' : '',
+    );
+    episodeController = TextEditingController(
+      text: metadata['episode_number'] != null ? '${metadata['episode_number']}' : '',
+    );
+    
+    if (!mounted) return;
+    
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(category == 'tv' ? 'TV Show Details' : 'Movie Details'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: confidenceColor.withOpacity(0.2),
+                      border: Border.all(color: confidenceColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Confidence: ${confidence[0].toUpperCase()}${confidence.substring(1)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: confidenceColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Series Name', style: TextStyle(fontWeight: FontWeight.bold)),
+                TextField(
+                  controller: seriesController,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter series name',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.all(8),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Season', style: TextStyle(fontWeight: FontWeight.bold)),
+                          TextField(
+                            controller: seasonController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. 1',
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.all(8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Episode', style: TextStyle(fontWeight: FontWeight.bold)),
+                          TextField(
+                            controller: episodeController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. 1',
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.all(8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Folder options from Emby
+                if (folderOptions.isNotEmpty) ...[
+                  const Text('Destination Folder', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  ...folderOptions.map((option) {
+                    final path = option['path'] as String? ?? '';
+                    final label = option['label'] as String? ?? path;
+                    final isSelected = selectedFolder == path;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        onTap: () => setState(() => selectedFolder = path),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.transparent,
+                            border: Border.all(
+                              color: isSelected ? Colors.blue : Colors.grey.withOpacity(0.3),
+                              width: isSelected ? 2 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                                color: isSelected ? Colors.blue : Colors.grey,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      label,
+                                      style: TextStyle(
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                    Text(
+                                      path,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 16),
+                ],
+                if (metadata['is_complete_season'] == true)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      border: Border.all(color: Colors.blue),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(child: Text('Complete season detected', style: TextStyle(fontSize: 12))),
+                      ],
+                    ),
+                  ),
+                if (metadata['is_multi_season'] == true) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      border: Border.all(color: Colors.blue),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(child: Text('Multi-season pack detected', style: TextStyle(fontSize: 12))),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const Text('Is this a new series?'),
+                CheckboxListTile(
+                  value: isNewSeries,
+                  onChanged: (val) => setState(() => isNewSeries = val ?? false),
+                  title: const Text('Yes, new series'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                if (seasonController.text.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('Is this a new season?'),
+                  CheckboxListTile(
+                    value: isNewSeason,
+                    onChanged: (val) => setState(() => isNewSeason = val ?? false),
+                    title: const Text('Yes, new season'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final seriesName = seriesController.text.trim();
+                if (category == 'tv' && seriesName.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Series name is required')),
+                  );
+                  return;
+                }
+                
+                if (folderOptions.isNotEmpty && selectedFolder == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please select a destination folder')),
+                  );
+                  return;
+                }
+                
+                Navigator.pop(context);
+                
+                int? seasonNum;
+                int? episodeNum;
+                
+                try {
+                  if (seasonController.text.isNotEmpty) {
+                    seasonNum = int.parse(seasonController.text);
+                  }
+                  if (episodeController.text.isNotEmpty) {
+                    episodeNum = int.parse(episodeController.text);
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Season and episode must be numbers')),
+                    );
+                  }
+                  return;
+                }
+                
+                // Proceed to add with edited metadata
+                await _upsertBatchItem(
+                  magnet: magnet,
+                  category: category,
+                  downloadLocation: selectedFolder ?? '',
+                  metadata: {
+                    ...metadata,
+                    'series_name': seriesName,
+                    'season_number': seasonNum,
+                    'episode_number': episodeNum,
+                    'isNewSeries': isNewSeries,
+                    'isNewSeason': isNewSeason,
+                  },
+                  showToast: true,
+                );
+                
+                // Clear magnet field after successful add
+                if (mounted) {
+                  _magnetController.clear();
+                }
+              },
+              child: const Text('Add to Batch'),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    seriesController.dispose();
+    seasonController.dispose();
+    episodeController.dispose();
+  }
+
   Future<void> _addToBatch() async {
     final magnet = _magnetController.text.trim();
     if (magnet.isEmpty) {
@@ -243,43 +620,16 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
       );
       return;
     }
+    
     final category = _newCategory;
-    String location = _newLocationController.text.trim();
 
-    final libraryById = _buildLibraryById();
-    final seasonHint = _extractSeasonNumber(_extractMagnetDisplayName(magnet) ?? magnet);
-    if (category == 'tv') {
-      final matchedEntry = _matchSeries(_newSeriesController.text, _tvIndex);
-      final suggested = _suggestLocationForEntry(matchedEntry, seasonHint, libraryById);
-      if (location.isEmpty && suggested != null) {
-        location = suggested;
-        _newLocationController.text = suggested;
-      }
-      if (_newSeriesController.text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter a series name for TV items')),
-        );
-        return;
-      }
-    }
-
-    if (location.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set a download location before adding')),
-      );
-      return;
-    }
-
-    await _upsertBatchItem(
-      magnet: magnet,
-      category: category,
-      downloadLocation: location,
-      showToast: true,
-    );
+    // Always parse and match for both TV and movies
+    await _parseTorrentAndAdd(magnet, category);
+    
+    // Clear fields after adding
     _magnetController.clear();
     _newSeriesController.clear();
     _newLocationController.clear();
-    setState(() => _newCategory = 'movie');
   }
 
   Future<void> _removeBatchItem(int index) async {
@@ -685,6 +1035,20 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
 
     setState(() => _submitting = true);
     try {
+      // Alert backend for each magnet being ingested
+      for (final item in _batch) {
+        try {
+          await ApiClient.alertMagnetIngested(
+            magnet: item.magnet,
+            targetPath: item.downloadLocation,
+            category: item.category,
+          );
+        } catch (e) {
+          print('Warning: Could not alert backend for magnet: $e');
+          // Continue even if alert fails - magnet will still be added
+        }
+      }
+      
       final result = await ApiClient.submitBatch();
       final successCount = (result['successCount'] ?? 0) as int;
       final skippedCount = (result['skippedCount'] ?? 0) as int;
@@ -732,7 +1096,7 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
 
   String? _guessSeriesName(String name) {
     final cleaned = name.replaceAll('.', ' ').replaceAll('_', ' ');
-    final seasonMatch = RegExp(r'(?i)(season\s*\d{1,2}|S\d{1,2})').firstMatch(cleaned);
+    final seasonMatch = RegExp(r'(season\s*\d{1,2}|S\d{1,2})', caseSensitive: false).firstMatch(cleaned);
     final end = seasonMatch?.start ?? cleaned.length;
     final base = cleaned.substring(0, end).trim();
     if (base.isNotEmpty) return base;
@@ -740,9 +1104,9 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
   }
 
   int? _extractSeasonNumber(String name) {
-    final m1 = RegExp(r'(?i)\bS(\d{1,2})\b').firstMatch(name);
+    final m1 = RegExp(r'\bS(\d{1,2})\b', caseSensitive: false).firstMatch(name);
     if (m1 != null) return int.tryParse(m1.group(1) ?? '');
-    final m2 = RegExp(r'(?i)\bseason\s*(\d{1,2})\b').firstMatch(name);
+    final m2 = RegExp(r'\bseason\s*(\d{1,2})\b', caseSensitive: false).firstMatch(name);
     if (m2 != null) return int.tryParse(m2.group(1) ?? '');
     return null;
   }
@@ -803,28 +1167,51 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
   }
 
   Map<String, Map<String, dynamic>> _buildLibraryById() {
-    final Map<String, Map<String, dynamic>> all = {
-      ...{for (final lib in _libraries['movie'] ?? []) (lib['id']?.toString() ?? ''): Map<String, dynamic>.from(lib)},
-      ...{for (final lib in _libraries['show'] ?? []) (lib['id']?.toString() ?? ''): Map<String, dynamic>.from(lib)},
-    };
+    final Map<String, Map<String, dynamic>> all = {};
+    for (final lib in _libraries['movie'] ?? []) {
+      final key = lib['id']?.toString() ?? '';
+      all[key] = Map<String, dynamic>.from(lib);
+    }
+    for (final lib in _libraries['show'] ?? []) {
+      final key = lib['id']?.toString() ?? '';
+      all[key] = Map<String, dynamic>.from(lib);
+    }
     return all;
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final libraryById = _buildLibraryById();
-    final matchedAddSeries = _matchSeries(_newSeriesController.text, _tvIndex);
-    final suggestedAddLocation = _suggestLocationForEntry(
-      matchedAddSeries,
-      _extractSeasonNumber(_newSeriesController.text),
-      libraryById,
-    );
-    return Scaffold(
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
+    
+    // Wrap entire build in error handling
+    try {
+      final libraryById = _buildLibraryById();
+      final matchedAddSeries = _matchSeries(_newSeriesController.text, _tvIndex);
+      final suggestedAddLocation = _suggestLocationForEntry(
+        matchedAddSeries,
+        _extractSeasonNumber(_newSeriesController.text),
+        libraryById,
+      );
+      
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Ingest'),
+          actions: [
+            if (_batchLoading)
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Card(
@@ -837,12 +1224,22 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
                       const SizedBox(height: 12),
                       TextField(
                         controller: _magnetController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Magnet link',
-                          hintText: 'magnet:?xt=urn:btih...',
-                          border: OutlineInputBorder(),
+                          hintText: 'Paste magnet link here...',
+                          border: const OutlineInputBorder(),
+                          helperText: 'We\'ll auto-detect the content and suggest folders',
+                          suffixIcon: _magnetController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    setState(() => _magnetController.clear());
+                                  },
+                                )
+                              : null,
                         ),
                         maxLines: 3,
+                        onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 12),
                       SegmentedButton<String>(
@@ -852,163 +1249,30 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
                         ],
                         selected: {_newCategory},
                         onSelectionChanged: (value) {
-                          setState(() {
-                            _newCategory = value.first;
-                            _newSeriesController.clear();
-                            _newLocationController.clear();
-                          });
+                          setState(() => _newCategory = value.first);
                         },
                       ),
                       const SizedBox(height: 12),
-                      if (_newCategory == 'tv') ...[
-                        TextField(
-                          controller: _newSeriesController,
-                          decoration: InputDecoration(
-                            labelText: 'TV Series',
-                            hintText: 'Series name (required)',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: _tvIndexLoading
-                                ? const Padding(
-                                    padding: EdgeInsets.all(12.0),
-                                    child: SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    ),
-                                  )
-                                : IconButton(
-                                    icon: const Icon(Icons.refresh),
-                                    tooltip: 'Refresh TV index',
-                                    onPressed: _loadTvIndex,
-                                  ),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_tvIndexError != null)
-                          Text('TV index error: $_tvIndexError', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.red)),
-                        if (_tvIndex.isNotEmpty) ...[
-                          Text(
-                            'Quick pick',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.blue),
-                          ),
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _tvIndex
-                                .where((entry) {
-                                  final q = _newSeriesController.text.toLowerCase();
-                                  if (q.isEmpty) return true;
-                                  return (entry['series'] ?? '').toString().toLowerCase().contains(q);
-                                })
-                                .take(8)
-                                .map((entry) => ActionChip(
-                                      label: Text(entry['series'] ?? 'Series'),
-                                      onPressed: () {
-                                        final suggested = _suggestLocationForEntry(entry, _extractSeasonNumber(_newSeriesController.text), libraryById);
-                                        setState(() {
-                                          _newSeriesController.text = entry['series'] ?? '';
-                                          if (suggested != null) _newLocationController.text = suggested;
-                                        });
-                                      },
-                                    ))
-                                .toList(),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        TextField(
-                          controller: _newLocationController,
-                          decoration: InputDecoration(
-                            labelText: 'TV Folder (required)',
-                            hintText: 'Select or enter series folder',
-                            border: const OutlineInputBorder(),
-                            helperText: suggestedAddLocation != null ? 'Suggested: $suggestedAddLocation' : null,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_libraries['show']?.isNotEmpty == true) ...[
-                          Text('Library quick select', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.blue)),
-                          const SizedBox(height: 6),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: _libraries['show']!
-                                  .map((lib) => Padding(
-                                        padding: const EdgeInsets.only(right: 8.0),
-                                        child: OutlinedButton.icon(
-                                          onPressed: () {
-                                            setState(() {
-                                              _newLocationController.text = lib['path'] ?? '';
-                                              if (_newSeriesController.text.isEmpty) {
-                                                _newSeriesController.text = lib['label'] ?? '';
-                                              }
-                                            });
-                                          },
-                                          icon: const Icon(Icons.folder, size: 16),
-                                          label: Text(lib['label'] ?? 'Library'),
-                                        ),
-                                      ))
-                                  .toList(),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ] else ...[
-                        TextField(
-                          controller: _newLocationController,
-                          decoration: const InputDecoration(
-                            labelText: 'Download Location (required)',
-                            hintText: '/movies or custom path',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_libraries['movie']?.isNotEmpty == true) ...[
-                          Text('Library quick select', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.blue)),
-                          const SizedBox(height: 6),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: _libraries['movie']!
-                                  .map((lib) => Padding(
-                                        padding: const EdgeInsets.only(right: 8.0),
-                                        child: OutlinedButton.icon(
-                                          onPressed: () {
-                                            setState(() {
-                                              _newLocationController.text = lib['path'] ?? '';
-                                            });
-                                          },
-                                          icon: const Icon(Icons.folder, size: 16),
-                                          label: Text(lib['label'] ?? 'Library'),
-                                        ),
-                                      ))
-                                  .toList(),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                      ],
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
+                            child: ElevatedButton.icon(
                               onPressed: _addToBatch,
-                              child: const Text('Add to Batch'),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Parse & Add to Batch'),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _pasteFromClipboard,
-                              child: const Text('Paste'),
-                            ),
+                          IconButton.outlined(
+                            onPressed: _pasteFromClipboard,
+                            icon: const Icon(Icons.content_paste),
+                            tooltip: 'Paste from clipboard',
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Add downloads to batch, customize each with type and location, then submit.',
+                        'Paste your magnet link, select category, and we\'ll parse the content and match it with your library.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
                       ),
                     ],
@@ -1044,54 +1308,148 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
               ..._batch.asMap().entries.map((entry) {
                 final index = entry.key;
                 final item = entry.value;
-                final magnetPreview = item.magnet.length > 50
-                    ? '${item.magnet.substring(0, 50)}...'
-                    : item.magnet;
+                // Parse display name from magnet link
+                final displayName = _extractMagnetDisplayName(item.magnet) ?? 
+                    (item.magnet.length > 60 ? '${item.magnet.substring(0, 60)}...' : item.magnet);
+                final locationParts = item.downloadLocation.split(RegExp(r'[/\\]'));
+                final locationDisplay = locationParts.isNotEmpty && item.downloadLocation.isNotEmpty
+                    ? locationParts.last 
+                    : null;
+                
+                // Get confidence level from metadata if available
+                final metadata = item.metadata as Map<String, dynamic>? ?? {};
+                final confidence = metadata['confidence'] as String? ?? '';
+                final confidenceColor = confidence == 'high' 
+                    ? Colors.green 
+                    : confidence == 'medium' 
+                        ? Colors.orange 
+                        : confidence == 'low'
+                            ? Colors.red
+                            : Colors.transparent;
+                
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: item.downloadLocation.isEmpty 
+                          ? Colors.red.withOpacity(0.3) 
+                          : Colors.grey.withOpacity(0.2),
+                    ),
+                  ),
                   child: InkWell(
                     onTap: () => _editBatchItem(index),
+                    borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.category.toUpperCase(),
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: item.category == 'tv' ? Colors.purple : Colors.orange,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                magnetPreview,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                                const SizedBox(height: 4),
-                                if (item.downloadLocation.isNotEmpty)
-                                  Text(
-                                    '📁 ${item.downloadLocation}',
-                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.blue,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Category badge and confidence indicator
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: item.category == 'tv' 
+                                            ? Colors.purple.withOpacity(0.2) 
+                                            : Colors.orange.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        item.category == 'tv' ? 'TV SHOW' : 'MOVIE',
+                                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                          color: item.category == 'tv' ? Colors.purple[300] : Colors.orange[300],
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
-                                  )
-                                else
+                                    const SizedBox(width: 8),
+                                    // Confidence indicator
+                                    if (confidence.isNotEmpty && item.category == 'tv')
+                                      Tooltip(
+                                        message: 'Parsing confidence: ${confidence[0].toUpperCase()}${confidence.substring(1)}',
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: confidenceColor.withOpacity(0.2),
+                                            border: Border.all(color: confidenceColor, width: 1),
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                          child: Text(
+                                            confidence == 'high' ? '✓' : confidence == 'medium' ? '○' : '⚠',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: confidenceColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                // Display name
+                                Text(
+                                  displayName,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                // Metadata display if available
+                                if (item.category == 'tv' && metadata['series_name'] != null) ...[
                                   Text(
-                                    'Set download location',
+                                    'Series: ${metadata['series_name'] ?? 'Unknown'}' +
+                                        (metadata['season_number'] != null ? ' • S${metadata['season_number'].toString().padLeft(2, '0')}' : '') +
+                                        (metadata['episode_number'] != null ? 'E${metadata['episode_number'].toString().padLeft(2, '0')}' : ''),
                                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.redAccent,
-                                      fontWeight: FontWeight.w600,
+                                      color: Colors.blue[300],
+                                      fontStyle: FontStyle.italic,
                                     ),
                                   ),
-                            ],
+                                  const SizedBox(height: 6),
+                                ],
+                                // Location info
+                                if (item.downloadLocation.isNotEmpty)
+                                  Row(
+                                    children: [
+                                      Icon(Icons.folder, size: 14, color: Colors.blue[300]),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          locationDisplay ?? item.downloadLocation,
+                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                            color: Colors.blue[300],
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Row(
+                                    children: [
+                                      Icon(Icons.warning_amber, size: 14, color: Colors.red[300]),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Tap to set location',
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: Colors.red[300],
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
                           SizedBox(
                             width: 48,
                             child: Tooltip(
@@ -1137,7 +1495,47 @@ class _IngestScreenState extends State<IngestScreen> with AutomaticKeepAliveClie
             ],
           ),
         ),
-      ),
-    );
+      ));
+    } catch (e, stack) {
+      // Show error screen if build fails
+      print('Ingest screen build error: $e');
+      print('Stack: $stack');
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Ingest - Error'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text(
+                  'Failed to load Ingest screen',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Error: $e',
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      // Force rebuild
+                    });
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
   }
 }

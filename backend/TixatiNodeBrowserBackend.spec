@@ -5,7 +5,7 @@ a = Analysis(
     ['C:\\TixatiNodeBrowserMobile\\backend\\run_local_app.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\TixatiNodeBrowserMobile\\backend\\templates', 'templates')],
+    datas=[('C:\\TixatiNodeBrowserMobile\\backend\\templates', 'templates'), ('C:\\TixatiNodeBrowserMobile\\backend\\static', 'static')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
